@@ -9,5 +9,11 @@ module.exports = {
   BANK_ACCOUNT: process.env.BANK_ACCOUNT,
   BANK_NAME: process.env.BANK_NAME,
   BANK_OWNER: process.env.BANK_OWNER,
-  BANK_BIN: process.env.BANK_BIN
+  BANK_BIN: process.env.BANK_BIN,
+  // MySQL Configuration
+  MYSQL_HOST: process.env.MYSQL_HOST || 'localhost',
+  MYSQL_PORT: process.env.MYSQL_PORT || 3306,
+  MYSQL_USER: process.env.MYSQL_USER || 'root',
+  MYSQL_PASSWORD: process.env.MYSQL_PASSWORD || '',
+  MYSQL_DATABASE: process.env.MYSQL_DATABASE || 'telegram_shop'
 };

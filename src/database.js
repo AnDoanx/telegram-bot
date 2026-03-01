@@ -1,248 +1,327 @@
-const initSqlJs = require('sql.js');
-const fs = require('fs');
-const path = require('path');
+const mysql = require('mysql2/promise');
+const config = require('./config');
 
-const DB_PATH = path.join(__dirname, '../data/shop.db');
-let db;
+let pool;
 
 async function initDB() {
-  const SQL = await initSqlJs();
-  
-  if (fs.existsSync(DB_PATH)) {
-    const buffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(buffer);
-  } else {
-    db = new SQL.Database();
+  // Tạo connection pool
+  pool = mysql.createPool({
+    host: config.MYSQL_HOST,
+    port: config.MYSQL_PORT,
+    user: config.MYSQL_USER,
+    password: config.MYSQL_PASSWORD,
+    database: config.MYSQL_DATABASE,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+  });
+
+  // Tạo các bảng nếu chưa tồn tại
+  const connection = await pool.getConnection();
+  try {
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS products (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        name VARCHAR(255) NOT NULL,
+        price INT NOT NULL,
+        description TEXT
+      )
+    `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS stock (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        product_id INT NOT NULL,
+        account_data TEXT NOT NULL,
+        is_sold TINYINT DEFAULT 0,
+        buyer_id BIGINT,
+        INDEX idx_product_sold (product_id, is_sold)
+      )
+    `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS orders (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        user_id BIGINT NOT NULL,
+        product_id INT NOT NULL,
+        stock_id INT,
+        status VARCHAR(50) DEFAULT 'pending',
+        chat_id BIGINT,
+        content TEXT,
+        quantity INT DEFAULT 1,
+        total_price INT,
+        created_at BIGINT,
+        INDEX idx_user_status (user_id, status),
+        INDEX idx_status (status)
+      )
+    `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id BIGINT PRIMARY KEY,
+        first_name VARCHAR(255),
+        username VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  } finally {
+    connection.release();
   }
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      price INTEGER NOT NULL,
-      description TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS stock (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      product_id INTEGER NOT NULL,
-      account_data TEXT NOT NULL,
-      is_sold INTEGER DEFAULT 0,
-      buyer_id INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS orders (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      product_id INTEGER NOT NULL,
-      stock_id INTEGER,
-      status TEXT DEFAULT 'pending',
-      chat_id INTEGER,
-      content TEXT,
-      quantity INTEGER DEFAULT 1,
-      total_price INTEGER,
-      created_at INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY,
-      first_name TEXT,
-      username TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-  saveDB();
 }
 
-function saveDB() {
-  const data = db.export();
-  const buffer = Buffer.from(data);
-  fs.writeFileSync(DB_PATH, buffer);
-}
-
-function getAllProducts() {
-  const result = db.exec(`
+async function getAllProducts() {
+  const [rows] = await pool.query(`
     SELECT p.id, p.name, p.price, p.description, 
            COUNT(CASE WHEN s.is_sold = 0 THEN 1 END) as stock_count
     FROM products p
     LEFT JOIN stock s ON p.id = s.product_id
     GROUP BY p.id
   `);
-  if (!result.length) return [];
-  return result[0].values.map(row => ({
-    id: row[0], name: row[1], price: row[2], description: row[3], stock_count: row[4]
+  return rows.map(row => ({
+    id: row.id,
+    name: row.name,
+    price: row.price,
+    description: row.description,
+    stock_count: parseInt(row.stock_count)
   }));
 }
 
-function getProduct(id) {
-  const result = db.exec(`
+async function getProduct(id) {
+  const [rows] = await pool.query(`
     SELECT p.id, p.name, p.price, p.description,
            COUNT(CASE WHEN s.is_sold = 0 THEN 1 END) as stock_count
     FROM products p
     LEFT JOIN stock s ON p.id = s.product_id
-    WHERE p.id = ${id}
+    WHERE p.id = ?
     GROUP BY p.id
-  `);
-  if (!result.length || !result[0].values.length) return null;
-  const row = result[0].values[0];
-  return { id: row[0], name: row[1], price: row[2], description: row[3], stock_count: row[4] };
+  `, [id]);
+  
+  if (!rows.length) return null;
+  const row = rows[0];
+  return {
+    id: row.id,
+    name: row.name,
+    price: row.price,
+    description: row.description,
+    stock_count: parseInt(row.stock_count)
+  };
 }
 
-function addProduct(name, price, description = '') {
-  db.run(`INSERT INTO products (name, price, description) VALUES (?, ?, ?)`, [name, price, description]);
-  const result = db.exec('SELECT last_insert_rowid()');
-  saveDB();
-  return { lastInsertRowid: result[0].values[0][0] };
+async function addProduct(name, price, description = '') {
+  const [result] = await pool.query(
+    'INSERT INTO products (name, price, description) VALUES (?, ?, ?)',
+    [name, price, description]
+  );
+  return { lastInsertRowid: result.insertId };
 }
 
-function deleteProduct(id) {
-  db.run(`DELETE FROM stock WHERE product_id = ?`, [id]);
-  db.run(`DELETE FROM products WHERE id = ?`, [id]);
-  saveDB();
+async function deleteProduct(id) {
+  await pool.query('DELETE FROM stock WHERE product_id = ?', [id]);
+  await pool.query('DELETE FROM products WHERE id = ?', [id]);
 }
 
-function addStock(productId, accountData) {
-  db.run(`INSERT INTO stock (product_id, account_data) VALUES (?, ?)`, [productId, accountData]);
-  saveDB();
+async function addStock(productId, accountData) {
+  await pool.query(
+    'INSERT INTO stock (product_id, account_data) VALUES (?, ?)',
+    [productId, accountData]
+  );
 }
 
-function deleteStock(stockId) {
-  db.run(`DELETE FROM stock WHERE id = ? AND is_sold = 0`, [stockId]);
-  saveDB();
+async function deleteStock(stockId) {
+  await pool.query('DELETE FROM stock WHERE id = ? AND is_sold = 0', [stockId]);
 }
 
-function clearStock(productId) {
-  db.run(`DELETE FROM stock WHERE product_id = ? AND is_sold = 0`, [productId]);
-  saveDB();
+async function clearStock(productId) {
+  await pool.query('DELETE FROM stock WHERE product_id = ? AND is_sold = 0', [productId]);
 }
 
-function getAvailableStock(productId) {
-  const result = db.exec(`SELECT id, product_id, account_data FROM stock WHERE product_id = ${productId} AND is_sold = 0 LIMIT 1`);
-  if (!result.length || !result[0].values.length) return null;
-  const row = result[0].values[0];
-  return { id: row[0], product_id: row[1], account_data: row[2] };
+async function getAvailableStock(productId) {
+  const [rows] = await pool.query(
+    'SELECT id, product_id, account_data FROM stock WHERE product_id = ? AND is_sold = 0 LIMIT 1',
+    [productId]
+  );
+  
+  if (!rows.length) return null;
+  return {
+    id: rows[0].id,
+    product_id: rows[0].product_id,
+    account_data: rows[0].account_data
+  };
 }
 
-function markStockSold(stockId, buyerId) {
-  db.run(`UPDATE stock SET is_sold = 1, buyer_id = ? WHERE id = ?`, [buyerId, stockId]);
-  saveDB();
+async function markStockSold(stockId, buyerId) {
+  await pool.query(
+    'UPDATE stock SET is_sold = 1, buyer_id = ? WHERE id = ?',
+    [buyerId, stockId]
+  );
 }
 
-function createOrder(userId, productId, chatId, content, quantity, totalPrice) {
+async function createOrder(userId, productId, chatId, content, quantity, totalPrice) {
   const createdAt = Date.now();
-  db.run(`INSERT INTO orders (user_id, product_id, chat_id, content, quantity, total_price, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, 
-    [userId, productId, chatId, content, quantity, totalPrice, createdAt]);
-  const result = db.exec('SELECT last_insert_rowid()');
-  saveDB();
-  return { lastInsertRowid: result[0].values[0][0], createdAt };
+  const [result] = await pool.query(
+    'INSERT INTO orders (user_id, product_id, chat_id, content, quantity, total_price, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [userId, productId, chatId, content, quantity, totalPrice, createdAt]
+  );
+  return { lastInsertRowid: result.insertId, createdAt };
 }
 
-function updateOrder(orderId, stockId, status) {
-  db.run(`UPDATE orders SET stock_id = ?, status = ? WHERE id = ?`, [stockId, status, orderId]);
-  saveDB();
+async function updateOrder(orderId, stockId, status) {
+  await pool.query(
+    'UPDATE orders SET stock_id = ?, status = ? WHERE id = ?',
+    [stockId, status, orderId]
+  );
 }
 
-function getPendingOrders() {
-  const result = db.exec(`
+async function getPendingOrders() {
+  const [rows] = await pool.query(`
     SELECT id, user_id, product_id, chat_id, content, quantity, total_price, created_at 
     FROM orders 
     WHERE status = 'pending' AND content IS NOT NULL
   `);
-  if (!result.length) return [];
-  return result[0].values.map(row => ({
-    id: row[0],
-    userId: row[1],
-    productId: row[2],
-    chatId: row[3],
-    content: row[4],
-    quantity: row[5],
-    totalPrice: row[6],
-    createdAt: row[7]
+  
+  return rows.map(row => ({
+    id: row.id,
+    userId: row.user_id,
+    productId: row.product_id,
+    chatId: row.chat_id,
+    content: row.content,
+    quantity: row.quantity,
+    totalPrice: row.total_price,
+    createdAt: row.created_at
   }));
 }
 
-function getOrdersByUser(userId) {
-  const result = db.exec(`
+async function getOrdersByUser(userId) {
+  const [rows] = await pool.query(`
     SELECT o.id, o.status, p.name as product_name, o.total_price
     FROM orders o
     JOIN products p ON o.product_id = p.id
-    WHERE o.user_id = ${userId}
+    WHERE o.user_id = ?
     ORDER BY o.id DESC
+  `, [userId]);
+  
+  return rows.map(row => ({
+    id: row.id,
+    status: row.status,
+    product_name: row.product_name,
+    price: row.total_price || 0
+  }));
+}
+
+async function saveUser(id, firstName, username) {
+  await pool.query(
+    'INSERT INTO users (id, first_name, username) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE first_name = ?, username = ?',
+    [id, firstName, username, firstName, username]
+  );
+}
+
+async function getAllUsers() {
+  const [rows] = await pool.query('SELECT id, first_name, username FROM users');
+  return rows.map(row => ({
+    id: row.id,
+    first_name: row.first_name,
+    username: row.username
+  }));
+}
+
+async function updateProduct(id, name, price, description) {
+  await pool.query(
+    'UPDATE products SET name = ?, price = ?, description = ? WHERE id = ?',
+    [name, price, description, id]
+  );
+}
+
+async function getStockByProduct(productId) {
+  const [rows] = await pool.query(
+    'SELECT id, account_data, is_sold, buyer_id FROM stock WHERE product_id = ?',
+    [productId]
+  );
+  
+  return rows.map(row => ({
+    id: row.id,
+    account_data: row.account_data,
+    is_sold: row.is_sold,
+    buyer_id: row.buyer_id
+  }));
+}
+
+async function getOrderHistory(userId) {
+  const [rows] = await pool.query(`
+    SELECT o.id, o.status, p.name, o.total_price, o.quantity, o.created_at
+    FROM orders o
+    JOIN products p ON o.product_id = p.id
+    WHERE o.user_id = ? AND o.status IN ('completed', 'pending', 'expired', 'cancelled')
+    ORDER BY o.id DESC
+    LIMIT 20
+  `, [userId]);
+  
+  return rows.map(row => ({
+    id: row.id,
+    status: row.status,
+    product_name: row.name,
+    total_price: row.total_price,
+    quantity: row.quantity,
+    created_at: row.created_at
+  }));
+}
+
+async function getRevenue() {
+  const [rows] = await pool.query(`
+    SELECT 
+      COUNT(*) as total_orders,
+      COALESCE(SUM(total_price), 0) as total_revenue
+    FROM orders
+    WHERE status = 'completed'
   `);
-  if (!result.length) return [];
-  return result[0].values.map(row => ({
-    id: row[0], status: row[1], product_name: row[2], price: row[3] || 0
+  
+  return {
+    total_orders: parseInt(rows[0].total_orders) || 0,
+    total_revenue: parseInt(rows[0].total_revenue) || 0
+  };
+}
+
+async function getRecentOrders(limit = 20) {
+  const [rows] = await pool.query(`
+    SELECT o.id, o.user_id, o.status, p.name, o.total_price, o.quantity, u.first_name, o.created_at
+    FROM orders o
+    JOIN products p ON o.product_id = p.id
+    LEFT JOIN users u ON o.user_id = u.id
+    ORDER BY o.id DESC
+    LIMIT ?
+  `, [limit]);
+  
+  return rows.map(row => ({
+    id: row.id,
+    user_id: row.user_id,
+    status: row.status,
+    product_name: row.name,
+    total_price: row.total_price,
+    quantity: row.quantity || 1,
+    user_name: row.first_name || 'Unknown',
+    created_at: row.created_at
   }));
 }
 
 module.exports = {
-  initDB, getAllProducts, getProduct, addProduct, deleteProduct,
-  addStock, deleteStock, clearStock, getAvailableStock, markStockSold, createOrder, updateOrder, getOrdersByUser, getPendingOrders,
-  saveUser: (id, firstName, username) => {
-    db.run(`INSERT OR REPLACE INTO users (id, first_name, username) VALUES (?, ?, ?)`, [id, firstName, username]);
-    saveDB();
-  },
-  getAllUsers: () => {
-    const result = db.exec('SELECT id, first_name, username FROM users');
-    if (!result.length) return [];
-    return result[0].values.map(row => ({ id: row[0], first_name: row[1], username: row[2] }));
-  },
-  
-  // Sửa sản phẩm
-  updateProduct: (id, name, price, description) => {
-    db.run(`UPDATE products SET name = ?, price = ?, description = ? WHERE id = ?`, [name, price, description, id]);
-    saveDB();
-  },
-  
-  // Xem stock của sản phẩm
-  getStockByProduct: (productId) => {
-    const result = db.exec(`SELECT id, account_data, is_sold, buyer_id FROM stock WHERE product_id = ${productId}`);
-    if (!result.length) return [];
-    return result[0].values.map(row => ({ id: row[0], account_data: row[1], is_sold: row[2], buyer_id: row[3] }));
-  },
-  
-  // Lịch sử mua hàng chi tiết
-  getOrderHistory: (userId) => {
-    const result = db.exec(`
-      SELECT o.id, o.status, p.name, o.total_price, o.quantity, o.created_at
-      FROM orders o
-      JOIN products p ON o.product_id = p.id
-      WHERE o.user_id = ${userId} AND o.status IN ('completed', 'pending', 'expired', 'cancelled')
-      ORDER BY o.id DESC
-      LIMIT 20
-    `);
-    if (!result.length) return [];
-    return result[0].values.map(row => ({ 
-      id: row[0], status: row[1], product_name: row[2], total_price: row[3], quantity: row[4], created_at: row[5]
-    }));
-  },
-  
-  // Thống kê doanh thu
-  getRevenue: () => {
-    const result = db.exec(`
-      SELECT 
-        COUNT(*) as total_orders,
-        SUM(total_price) as total_revenue
-      FROM orders
-      WHERE status = 'completed'
-    `);
-    if (!result.length || !result[0].values.length) return { total_orders: 0, total_revenue: 0 };
-    return { total_orders: result[0].values[0][0] || 0, total_revenue: result[0].values[0][1] || 0 };
-  },
-  
-  // Danh sách đơn hàng gần đây (admin)
-  getRecentOrders: (limit = 20) => {
-    const result = db.exec(`
-      SELECT o.id, o.user_id, o.status, p.name, o.total_price, o.quantity, u.first_name, o.created_at
-      FROM orders o
-      JOIN products p ON o.product_id = p.id
-      LEFT JOIN users u ON o.user_id = u.id
-      ORDER BY o.id DESC
-      LIMIT ${limit}
-    `);
-    if (!result.length) return [];
-    return result[0].values.map(row => ({ 
-      id: row[0], user_id: row[1], status: row[2], product_name: row[3], total_price: row[4], quantity: row[5] || 1, user_name: row[6] || 'Unknown', created_at: row[7]
-    }));
-  }
+  initDB,
+  getAllProducts,
+  getProduct,
+  addProduct,
+  deleteProduct,
+  addStock,
+  deleteStock,
+  clearStock,
+  getAvailableStock,
+  markStockSold,
+  createOrder,
+  updateOrder,
+  getOrdersByUser,
+  getPendingOrders,
+  saveUser,
+  getAllUsers,
+  updateProduct,
+  getStockByProduct,
+  getOrderHistory,
+  getRevenue,
+  getRecentOrders
 };

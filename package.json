@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.64.0",
-    "sql.js": "^1.10.2",
+    "mysql2": "^3.6.5",
     "dotenv": "^16.3.1"
   },
   "devDependencies": {

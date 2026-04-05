@@ -29,6 +29,12 @@ function getQRUrl(amount, content) {
 async function startBot() {
   await db.initDB();
 
+  // Keep-alive cho database Aiven Cloud (ping mỗi 5 phút)
+  setInterval(async () => {
+    await db.keepAlive();
+  }, 5 * 60 * 1000); // 5 phút
+  console.log('🔄 Database keep-alive đã được kích hoạt (mỗi 5 phút)');
+
   const savedOrders = await db.getPendingOrders();
   savedOrders.forEach(o => {
     pendingOrders.set(o.id, {

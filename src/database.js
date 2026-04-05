@@ -302,6 +302,16 @@ async function getRecentOrders(limit = 20) {
   }));
 }
 
+// Hàm keep-alive để giữ database luôn hoạt động (tránh bị sleep)
+async function keepAlive() {
+  try {
+    await pool.query('SELECT 1');
+    console.log('🔄 Database keep-alive ping successful');
+  } catch (error) {
+    console.error('❌ Database keep-alive ping failed:', error.message);
+  }
+}
+
 module.exports = {
   initDB,
   getAllProducts,
@@ -323,5 +333,6 @@ module.exports = {
   getStockByProduct,
   getOrderHistory,
   getRevenue,
-  getRecentOrders
+  getRecentOrders,
+  keepAlive
 };

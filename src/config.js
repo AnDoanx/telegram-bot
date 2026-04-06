@@ -1,5 +1,10 @@
 require('dotenv').config();
 
+const path = require('path');
+
+/** auto = thử MySQL, lỗi kết nối thì dùng SQLite | mysql | sqlite */
+const DB_MODE = (process.env.DB_MODE || 'auto').toLowerCase();
+
 module.exports = {
   BOT_TOKEN: process.env.BOT_TOKEN,
   ADMIN_IDS: (process.env.ADMIN_IDS || '').split(',').map(id => parseInt(id.trim())),
@@ -10,9 +15,12 @@ module.exports = {
   BANK_NAME: process.env.BANK_NAME,
   BANK_OWNER: process.env.BANK_OWNER,
   BANK_BIN: process.env.BANK_BIN,
-  // MySQL Configuration
+  DB_MODE,
+  SQLITE_PATH: process.env.SQLITE_PATH
+    ? path.resolve(process.env.SQLITE_PATH)
+    : path.join(__dirname, '../data/shop.db'),
   MYSQL_HOST: process.env.MYSQL_HOST || 'localhost',
-  MYSQL_PORT: process.env.MYSQL_PORT || 3306,
+  MYSQL_PORT: parseInt(process.env.MYSQL_PORT || '3306', 10),
   MYSQL_USER: process.env.MYSQL_USER || 'root',
   MYSQL_PASSWORD: process.env.MYSQL_PASSWORD || '',
   MYSQL_DATABASE: process.env.MYSQL_DATABASE || 'telegram_shop'

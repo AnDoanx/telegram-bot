@@ -8,6 +8,7 @@
     "dev": "nodemon src/bot.js"
   },
   "dependencies": {
+    "better-sqlite3": "^11.6.0",
     "node-telegram-bot-api": "^0.64.0",
     "mysql2": "^3.6.5",
     "dotenv": "^16.3.1"

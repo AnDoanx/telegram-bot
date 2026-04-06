@@ -2,7 +2,6 @@ require('dotenv').config();
 
 const path = require('path');
 
-/** auto = thử MySQL, lỗi kết nối thì dùng SQLite | mysql | sqlite */
 const DB_MODE = (process.env.DB_MODE || 'auto').toLowerCase();
 
 module.exports = {

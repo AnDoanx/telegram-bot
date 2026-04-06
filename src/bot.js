@@ -29,12 +29,12 @@ function formatTierBullets(product) {
       if (next) return '   • ' + tier.min + '-' + (next.min - 1) + ' sp: ' + formatPrice(tier.price) + sfx;
       return '   • ' + tier.min + '+ sp: ' + formatPrice(tier.price) + sfx;
     })
-    .join('\n') + '\n';
+    .join('\n') + '\n\n';
 }
 
 function productPriceBlockUser(product) {
   if (!product.price_tiers?.length) return '💰 Giá: ' + formatPrice(product.price) + '/sp\n';
-  return '💰 BẢNG GIÁ:\n' + formatTierBullets(product);
+  return '💰 BẢNG GIÁ:\n\n' + formatTierBullets(product);
 }
 
 function productPriceBlockAdmin(product) {

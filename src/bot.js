@@ -121,7 +121,7 @@ function getQRUrl(amount, content) {
 async function startBot() {
   await db.initDB();
 
-  // Keep-alive cho database Aiven Cloud (ping mỗi 5 phút)
+  // Keep-alive cho database
   setInterval(async () => {
     await db.keepAlive();
   }, 5 * 60 * 1000);
@@ -172,8 +172,7 @@ async function startBot() {
       { command: 'stats', description: '📊 Tồn kho' },
       { command: 'users', description: '👥 Users & Số dư' },
       { command: 'broadcast', description: '📣 Thông báo' },
-      { command: 'setmoney', description: '💵 Set số dư user' },
-      { command: 'addmoney', description: '➕ Cộng số dư user' }
+      { command: 'setmoney', description: '💵 Set số dư user' }
     ], { scope: { type: 'chat', chat_id: adminId } });
   });
 
@@ -288,7 +287,6 @@ async function startBot() {
     bot.sendMessage(msg.chat.id, '🔖 User ID: ' + msg.from.id);
   });
 
-  // /clear - Xóa tin nhắn (chỉ admin)
   bot.onText(/\/clear/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
     const chatId = msg.chat.id;
@@ -308,7 +306,7 @@ async function startBot() {
     });
   });
 
-  // /setmoney - Đặt số dư cố định (chỉ admin)
+  // /setmoney - Lệnh quản lý số dư duy nhất cho Admin
   bot.onText(/\/setmoney(?:\s+(\d+)\s+(\d+))?/, async (msg, match) => {
     if (!isAdmin(msg.from.id)) return;
     const targetUserId = match[1];
@@ -324,29 +322,6 @@ async function startBot() {
 
       try {
         await bot.sendMessage(targetUserId, `🎉 Số dư ví của bạn vừa được cập nhật: <b>${formatPrice(amount)}</b>`, { parse_mode: 'HTML' });
-      } catch (_) {}
-    } catch (err) {
-      bot.sendMessage(msg.chat.id, `❌ Lỗi: ${err.message}`);
-    }
-  });
-
-  // /addmoney - Cộng dồn tiền vào số dư (chỉ admin)
-  bot.onText(/\/addmoney(?:\s+(\d+)\s+(-?\d+))?/, async (msg, match) => {
-    if (!isAdmin(msg.from.id)) return;
-    const targetUserId = match[1];
-    const amount = parseInt(match[2], 10);
-
-    if (!targetUserId || isNaN(amount)) {
-      return bot.sendMessage(msg.chat.id, '⚠️ <b>Sai cú pháp!</b>\n👉 Dùng: <code>/addmoney &lt;ID_User&gt; &lt;Số_tiền&gt;</code>\nVí dụ: <code>/addmoney 123456789 20000</code>', { parse_mode: 'HTML' });
-    }
-
-    try {
-      await db.addMoney(targetUserId, amount);
-      const newBal = await db.getUserBalance(targetUserId);
-      await bot.sendMessage(msg.chat.id, `✅ Đã cộng <b>${formatPrice(amount)}</b> cho user <code>${targetUserId}</code>.\n💰 Số dư hiện tại: <b>${formatPrice(newBal)}</b>`, { parse_mode: 'HTML' });
-
-      try {
-        await bot.sendMessage(targetUserId, `🎉 Ví của bạn vừa được cộng: <b>${formatPrice(amount)}</b>\n💰 Số dư hiện tại: <b>${formatPrice(newBal)}</b>`, { parse_mode: 'HTML' });
       } catch (_) {}
     } catch (err) {
       bot.sendMessage(msg.chat.id, `❌ Lỗi: ${err.message}`);
@@ -424,7 +399,6 @@ async function startBot() {
         }
       }
 
-      // Menu nạp tiền vào ví
       if (data === 'deposit_menu') {
         const text = '💳 NẠP TIỀN VÀO VÍ\n' +
                      '━━━━━━━━━━━━━━━━━━━━━\n\n' +
@@ -546,53 +520,100 @@ async function startBot() {
         bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('❌ Hủy'), callback_data: 'product_' + productId }]] } });
       }
 
-      // Xử lý chọn số lượng: Tự trừ ví nếu đủ, nếu không đủ mới tạo QR SePay
+      // 1. Khi bấm chọn số lượng -> Hiện bảng lựa chọn phương thức thanh toán
       if (data.startsWith('qty_')) {
         const [, productId, quantity] = data.split('_');
         const product = await db.getProduct(parseInt(productId));
         const qty = parseInt(quantity);
-        if (product.stock_count < qty) return bot.answerCallbackQuery(query.id, { text: '✖️ Không đủ hàng!' });
+        if (product.stock_count < qty) return bot.answerCallbackQuery(query.id, { text: '✖️ Không đủ hàng!', show_alert: true });
 
         const totalPrice = db.calculatePrice(product, qty);
         const unitPrice = db.getUnitPrice(product, qty);
         const userBalance = await db.getUserBalance(userId);
 
-        // NẾU VÍ ĐỦ TIỀN -> THANH TOÁN TRỰC TIẾP QUA VÍ
-        if (userBalance >= totalPrice) {
-          await db.deductBalance(userId, totalPrice);
+        const discountInfo = unitPrice < product.price ? '\n💎 Giá ưu đãi: ' + formatPrice(unitPrice) + '/sp' : '';
+        const text = '🛒 XÁC NHẬN MUA HÀNG\n' +
+                     '━━━━━━━━━━━━━━━━━━━━━\n\n' +
+                     '🎁 Sản phẩm: <b>' + product.name + '</b> x' + qty + discountInfo + '\n' +
+                     '💰 Tổng thanh toán: <b>' + formatPrice(totalPrice) + '</b>\n\n' +
+                     '💳 Số dư ví của bạn: <b>' + formatPrice(userBalance) + '</b>\n\n' +
+                     '👇 Chọn hình thức thanh toán bên dưới:';
 
-          let accounts = [];
-          for (let i = 0; i < qty; i++) {
-            const stock = await db.getAvailableStock(parseInt(productId));
-            if (stock) {
-              await db.markStockSold(stock.id, userId);
-              accounts.push(stock.account_data);
-            }
-          }
+        const keyboard = [
+          [{ text: wideInlineLabel('💳 Thanh toán bằng VÍ TIỀN'), callback_data: `paywallet_${productId}_${qty}` }],
+          [{ text: wideInlineLabel('🏦 Chuyển khoản qua NGÂN HÀNG (QR)'), callback_data: `paybank_${productId}_${qty}` }],
+          [{ text: wideInlineLabel('◀️ Quay lại'), callback_data: `product_${productId}` }]
+        ];
 
-          const order = await db.createOrder(userId, parseInt(productId), chatId, 'WALLET_PAY', qty, totalPrice);
-          await db.updateOrder(order.lastInsertRowid, null, 'completed');
+        return bot.editMessageText(text, {
+          chat_id: chatId,
+          message_id: query.message.message_id,
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: keyboard }
+        });
+      }
 
-          await bot.deleteMessage(chatId, query.message.message_id);
-          const remainingBal = await db.getUserBalance(userId);
-          let accText = accounts.map((a, idx) => '  ' + (idx + 1) + '. ' + a).join('\n');
+      // 2. Xử lý khi khách bấm nút "💳 Thanh toán bằng VÍ TIỀN"
+      if (data.startsWith('paywallet_')) {
+        const [, productId, quantity] = data.split('_');
+        const product = await db.getProduct(parseInt(productId));
+        const qty = parseInt(quantity);
+        const totalPrice = db.calculatePrice(product, qty);
+        const userBalance = await db.getUserBalance(userId);
 
-          const successMsg = '✅ THANH TOÁN BẰNG VÍ THÀNH CÔNG!\n' +
-                             '━━━━━━━━━━━━━━━━━━━━━\n\n' +
-                             '🎁 ' + product.name + ' x' + qty + '\n' +
-                             '💳 Đã trừ ví: <b>' + formatPrice(totalPrice) + '</b>\n' +
-                             '💰 Số dư ví còn lại: <b>' + formatPrice(remainingBal) + '</b>\n\n' +
-                             '🔑 TÀI KHOẢN:\n' +
-                             accText + '\n\n' +
-                             '⚠️ Đổi mật khẩu ngay!\n' +
-                             '⛄ Cảm ơn bạn đã mua hàng!\n' +
-                             '🛒 Mua thêm? Gõ /menu';
-          await bot.sendMessage(chatId, successMsg, { parse_mode: 'HTML' });
-          config.ADMIN_IDS.forEach(id => bot.sendMessage(id, '🔔 Đơn #' + order.lastInsertRowid + ' (VÍ TIỀN) ĐÃ THANH TOÁN\n👤 User: ' + userId + '\n🎁 ' + product.name + ' x' + qty + '\n💵 ' + formatPrice(totalPrice)));
-          return;
+        if (userBalance < totalPrice) {
+          const missing = totalPrice - userBalance;
+          return bot.answerCallbackQuery(query.id, {
+            text: `❌ Số dư không đủ! Bạn còn thiếu ${formatPrice(missing)}. Hãy nạp thêm tiền vào ví!`,
+            show_alert: true
+          });
         }
 
-        // NẾU KHÔNG ĐỦ TIỀN VÍ -> TẠO MÃ QR SEPAY
+        if (product.stock_count < qty) {
+          return bot.answerCallbackQuery(query.id, { text: '✖️ Rất tiếc, sản phẩm vừa hết hàng trong kho!', show_alert: true });
+        }
+
+        await db.deductBalance(userId, totalPrice);
+
+        let accounts = [];
+        for (let i = 0; i < qty; i++) {
+          const stock = await db.getAvailableStock(parseInt(productId));
+          if (stock) {
+            await db.markStockSold(stock.id, userId);
+            accounts.push(stock.account_data);
+          }
+        }
+
+        const order = await db.createOrder(userId, parseInt(productId), chatId, 'WALLET_PAY', qty, totalPrice);
+        await db.updateOrder(order.lastInsertRowid, null, 'completed');
+
+        const remainingBal = await db.getUserBalance(userId);
+        let accText = accounts.map((a, idx) => '  ' + (idx + 1) + '. ' + a).join('\n');
+
+        await bot.deleteMessage(chatId, query.message.message_id);
+        const successMsg = '✅ THANH TOÁN BẰNG VÍ THÀNH CÔNG!\n' +
+                           '━━━━━━━━━━━━━━━━━━━━━\n\n' +
+                           '🎁 ' + product.name + ' x' + qty + '\n' +
+                           '💳 Đã trừ ví: <b>' + formatPrice(totalPrice) + '</b>\n' +
+                           '💰 Số dư ví còn lại: <b>' + formatPrice(remainingBal) + '</b>\n\n' +
+                           '🔑 TÀI KHOẢN CỦA BẠN:\n' +
+                           accText + '\n\n' +
+                           '⚠️ Đổi mật khẩu ngay để bảo mật!\n' +
+                           '🛒 Mua thêm? Gõ /menu';
+
+        await bot.sendMessage(chatId, successMsg, { parse_mode: 'HTML' });
+        config.ADMIN_IDS.forEach(id => bot.sendMessage(id, `🔔 Đơn #${order.lastInsertRowid} (THANH TOÁN BẰNG VÍ)\n👤 User: <code>${userId}</code>\n🎁 ${product.name} x${qty}\n💵 ${formatPrice(totalPrice)}`));
+        return;
+      }
+
+      // 3. Xử lý khi khách bấm nút "🏦 Chuyển khoản qua NGÂN HÀNG (QR)"
+      if (data.startsWith('paybank_')) {
+        const [, productId, quantity] = data.split('_');
+        const product = await db.getProduct(parseInt(productId));
+        const qty = parseInt(quantity);
+        const totalPrice = db.calculatePrice(product, qty);
+        const unitPrice = db.getUnitPrice(product, qty);
+
         const content = generateCode();
         const order = await db.createOrder(userId, parseInt(productId), chatId, content, qty, totalPrice);
         const orderId = order.lastInsertRowid;
@@ -603,19 +624,23 @@ async function startBot() {
         const caption = '💳 THANH TOÁN ĐƠN #' + orderId + '\n' +
                         '━━━━━━━━━━━━━━━━━━━━━\n\n' +
                         '🎁 ' + product.name + ' x' + qty + discountInfo + '\n' +
-                        '💰 Cần thanh toán: ' + formatPrice(totalPrice) + '\n' +
-                        '💳 Số dư ví hiện tại: ' + formatPrice(userBalance) + ' (Không đủ thanh toán ví)\n\n' +
+                        '💰 Cần chuyển: ' + formatPrice(totalPrice) + '\n\n' +
                         '🏦 THÔNG TIN CHUYỂN KHOẢN\n' +
                         '• NH: ' + config.BANK_NAME + '\n' +
                         '• STK: ' + config.BANK_ACCOUNT + '\n' +
                         '• Chủ TK: ' + config.BANK_OWNER + '\n' +
                         '• Nội dung: ' + content + '\n\n' +
-                        '📲 Quét QR để thanh toán\n' +
-                        '⏳ Tự động xác nhận khi nhận tiền\n' +
-                        '⚠️ Đơn hết hạn sau 20 phút';
+                        '📲 Quét QR để chuyển khoản\n' +
+                        '⏳ Tự động giao tài khoản khi nhận tiền';
+
         await bot.sendPhoto(chatId, getQRUrl(totalPrice, content), {
           caption: caption,
-          reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('🔄 Kiểm tra thanh toán'), callback_data: 'check_' + orderId + '_' + productId + '_' + qty }], [{ text: wideInlineLabel('❌ Hủy đơn'), callback_data: 'cancel_' + orderId }]] }
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: wideInlineLabel('🔄 Kiểm tra thanh toán'), callback_data: 'check_' + orderId + '_' + productId + '_' + qty }],
+              [{ text: wideInlineLabel('❌ Hủy đơn'), callback_data: 'cancel_' + orderId }]
+            ]
+          }
         });
         return;
       }
@@ -997,7 +1022,7 @@ async function startBot() {
     const editInfo = waitingEdit.get(msg.from.id);
     if (!editInfo) return;
 
-    // 1. Nhập số lượng mua tùy chỉnh
+    // 1. Nhập số lượng mua tùy chỉnh -> cũng hiện chọn phương thức VÍ hoặc QR
     if (editInfo.field === 'custom_qty') {
       const qty = parseInt(msg.text.trim());
       const product = await db.getProduct(editInfo.productId);
@@ -1025,61 +1050,24 @@ async function startBot() {
       const unitPrice = db.getUnitPrice(product, qty);
       const userBalance = await db.getUserBalance(msg.from.id);
 
-      // Nếu ví đủ tiền -> Thanh toán luôn
-      if (userBalance >= totalPrice) {
-        await db.deductBalance(msg.from.id, totalPrice);
-
-        let accounts = [];
-        for (let i = 0; i < qty; i++) {
-          const stock = await db.getAvailableStock(editInfo.productId);
-          if (stock) {
-            await db.markStockSold(stock.id, msg.from.id);
-            accounts.push(stock.account_data);
-          }
-        }
-
-        const order = await db.createOrder(msg.from.id, editInfo.productId, msg.chat.id, 'WALLET_PAY', qty, totalPrice);
-        await db.updateOrder(order.lastInsertRowid, null, 'completed');
-
-        const remainingBal = await db.getUserBalance(msg.from.id);
-        let accText = accounts.map((a, idx) => '  ' + (idx + 1) + '. ' + a).join('\n');
-
-        const successMsg = '✅ THANH TOÁN BẰNG VÍ THÀNH CÔNG!\n' +
-                           '━━━━━━━━━━━━━━━━━━━━━\n\n' +
-                           '🎁 ' + product.name + ' x' + qty + '\n' +
-                           '💳 Đã trừ ví: <b>' + formatPrice(totalPrice) + '</b>\n' +
-                           '💰 Số dư ví còn lại: <b>' + formatPrice(remainingBal) + '</b>\n\n' +
-                           '🔑 TÀI KHOẢN:\n' +
-                           accText + '\n\n' +
-                           '⚠️ Đổi mật khẩu ngay!';
-        return bot.sendMessage(msg.chat.id, successMsg, { parse_mode: 'HTML' });
-      }
-
-      // Ví không đủ -> Tạo đơn thanh toán SePay
-      const content = generateCode();
-      const order = await db.createOrder(msg.from.id, editInfo.productId, msg.chat.id, content, qty, totalPrice);
-      const orderId = order.lastInsertRowid;
-      pendingOrders.set(orderId, { chatId: msg.chat.id, userId: msg.from.id, productId: editInfo.productId, quantity: qty, totalPrice, content, createdAt: order.createdAt });
-      
       const discountInfo = unitPrice < product.price ? '\n💎 Giá ưu đãi: ' + formatPrice(unitPrice) + '/sp' : '';
-      const caption = '💳 THANH TOÁN ĐƠN #' + orderId + '\n' +
-                      '━━━━━━━━━━━━━━━━━━━━━\n\n' +
-                      '🎁 ' + product.name + ' x' + qty + discountInfo + '\n' +
-                      '💰 Tổng: ' + formatPrice(totalPrice) + '\n' +
-                      '💳 Số dư ví: ' + formatPrice(userBalance) + ' (Không đủ thanh toán ví)\n\n' +
-                      '🏦 THÔNG TIN CHUYỂN KHOẢN\n' +
-                      '• NH: ' + config.BANK_NAME + '\n' +
-                      '• STK: ' + config.BANK_ACCOUNT + '\n' +
-                      '• Chủ TK: ' + config.BANK_OWNER + '\n' +
-                      '• Nội dung: ' + content + '\n\n' +
-                      '📲 Quét QR để thanh toán\n' +
-                      '⏳ Tự động xác nhận khi nhận tiền\n' +
-                      '⚠️ Đơn hết hạn sau 20 phút';
-      await bot.sendPhoto(msg.chat.id, getQRUrl(totalPrice, content), {
-        caption: caption,
-        reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('🔄 Kiểm tra thanh toán'), callback_data: 'check_' + orderId + '_' + editInfo.productId + '_' + qty }], [{ text: wideInlineLabel('❌ Hủy đơn'), callback_data: 'cancel_' + orderId }]] }
+      const text = '🛒 XÁC NHẬN MUA HÀNG\n' +
+                   '━━━━━━━━━━━━━━━━━━━━━\n\n' +
+                   '🎁 Sản phẩm: <b>' + product.name + '</b> x' + qty + discountInfo + '\n' +
+                   '💰 Tổng thanh toán: <b>' + formatPrice(totalPrice) + '</b>\n\n' +
+                   '💳 Số dư ví của bạn: <b>' + formatPrice(userBalance) + '</b>\n\n' +
+                   '👇 Chọn hình thức thanh toán bên dưới:';
+
+      const keyboard = [
+        [{ text: wideInlineLabel('💳 Thanh toán bằng VÍ TIỀN'), callback_data: `paywallet_${editInfo.productId}_${qty}` }],
+        [{ text: wideInlineLabel('🏦 Chuyển khoản qua NGÂN HÀNG (QR)'), callback_data: `paybank_${editInfo.productId}_${qty}` }],
+        [{ text: wideInlineLabel('◀️ Quay lại'), callback_data: `product_${editInfo.productId}` }]
+      ];
+
+      return bot.sendMessage(msg.chat.id, text, {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: keyboard }
       });
-      return;
     }
 
     // 2. Nhập số tiền nạp tùy chỉnh

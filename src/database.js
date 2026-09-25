@@ -1,5 +1,4 @@
-Dưới đây là toàn bộ mã nguồn file src/database.js đã được thêm bảng deposits (cho cả MySQL và SQLite), cùng đầy đủ các hàm xử lý nạp tiền, trừ tiền và số dư ví. Bạn chỉ cần sao chép toàn bộ và dán đè vào:
-const fs = require('fs');
+
 const path = require('path');
 const config = require('./config');
 

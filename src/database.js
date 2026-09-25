@@ -85,9 +85,17 @@ async function initMysql() {
         id BIGINT PRIMARY KEY,
         first_name VARCHAR(255),
         username VARCHAR(255),
+        balance BIGINT DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Tự động thêm cột balance nếu bảng users đã tồn tại từ trước
+    try {
+      await connection.query(`ALTER TABLE users ADD COLUMN balance BIGINT DEFAULT 0`);
+    } catch (_) {
+      /* Bỏ qua nếu cột đã tồn tại */
+    }
   } finally {
     connection.release();
   }
@@ -133,9 +141,17 @@ function initSqlite() {
       id INTEGER PRIMARY KEY,
       first_name TEXT,
       username TEXT,
+      balance INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // Tự động thêm cột balance nếu file sqlite cũ chưa có cột này
+  try {
+    sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`);
+  } catch (_) {
+    /* Bỏ qua nếu cột đã có */
+  }
 }
 
 async function initDB() {
@@ -342,11 +358,12 @@ async function saveUser(id, firstName, username) {
 }
 
 async function getAllUsers() {
-  const rows = await queryAll('SELECT id, first_name, username FROM users');
+  const rows = await queryAll('SELECT id, first_name, username, balance FROM users');
   return rows.map((row) => ({
     id: row.id,
     first_name: row.first_name,
-    username: row.username
+    username: row.username,
+    balance: parseInt(row.balance, 10) || 0
   }));
 }
 
@@ -436,6 +453,24 @@ async function keepAlive() {
   }
 }
 
+// ==================== CÁC HÀM XỬ LÝ TIỀN (BALANCE) ====================
+
+async function getUserBalance(userId) {
+  const rows = await queryAll('SELECT balance FROM users WHERE id = ?', [userId]);
+  if (!rows || rows.length === 0) return 0;
+  return parseInt(rows[0].balance, 10) || 0;
+}
+
+async function setUserBalance(userId, amount) {
+  const val = Math.max(0, parseInt(amount, 10) || 0);
+  return await queryRun('UPDATE users SET balance = ? WHERE id = ?', [val, userId]);
+}
+
+async function addMoney(userId, amount) {
+  const addVal = parseInt(amount, 10) || 0;
+  return await queryRun('UPDATE users SET balance = balance + ? WHERE id = ?', [addVal, userId]);
+}
+
 module.exports = {
   initDB,
   getAllProducts,
@@ -461,5 +496,9 @@ module.exports = {
   getRecentOrders,
   keepAlive,
   calculatePrice,
-  getUnitPrice
+  getUnitPrice,
+  // Đã xuất thêm các hàm số dư:
+  getUserBalance,
+  setUserBalance,
+  addMoney
 };

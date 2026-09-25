@@ -3,8 +3,8 @@ const config = require('./config');
 const db = require('./database');
 const sepay = require('./sepay');
 
-const formatPrice = (price) => price.toLocaleString('vi-VN') + ' VND';
-const isAdmin = (userId) => config.ADMIN_IDS.includes(userId);
+const formatPrice = (price) => (price || 0).toLocaleString('vi-VN') + ' VND';
+const isAdmin = (userId) => config.ADMIN_IDS.map(id => id.toString()).includes(userId.toString());
 const getFullName = (user) => (user.first_name + (user.last_name ? ' ' + user.last_name : '')).trim();
 const ORDER_TIMEOUT_MS = 20 * 60 * 1000;
 
@@ -123,7 +123,7 @@ async function startBot() {
   // Keep-alive cho database Aiven Cloud (ping mỗi 5 phút)
   setInterval(async () => {
     await db.keepAlive();
-  }, 5 * 60 * 1000); // 5 phút
+  }, 5 * 60 * 1000);
   console.log('🔄 Database keep-alive: mỗi 5 phút');
 
   const savedOrders = await db.getPendingOrders();
@@ -157,7 +157,9 @@ async function startBot() {
       { command: 'revenue', description: '📈 Doanh thu' },
       { command: 'stats', description: '📊 Tồn kho' },
       { command: 'users', description: '👥 Users' },
-      { command: 'broadcast', description: '📣 Thông báo' }
+      { command: 'broadcast', description: '📣 Thông báo' },
+      { command: 'setmoney', description: '💵 Set số dư user' },
+      { command: 'addmoney', description: '➕ Cộng số dư user' }
     ], { scope: { type: 'chat', chat_id: adminId } });
   });
 
@@ -267,6 +269,53 @@ async function startBot() {
     });
   });
 
+  // ===== ADMIN: Set số dư cho user (/setmoney <userId> <amount>) =====
+  bot.onText(/\/setmoney(?:\s+(\d+)\s+(\d+))?/, async (msg, match) => {
+    if (!isAdmin(msg.from.id)) return;
+    const targetUserId = match[1];
+    const amount = parseInt(match[2], 10);
+
+    if (!targetUserId || isNaN(amount)) {
+      return bot.sendMessage(msg.chat.id, '⚠️ <b>Sai cú pháp!</b>\n👉 Dùng: <code>/setmoney &lt;ID_User&gt; &lt;Số_tiền&gt;</code>\nVí dụ: <code>/setmoney 123456789 50000</code>', { parse_mode: 'HTML' });
+    }
+
+    try {
+      await db.setUserBalance(targetUserId, amount);
+      await bot.sendMessage(msg.chat.id, `✅ Đã đặt số dư cho user <code>${targetUserId}</code> thành: <b>${formatPrice(amount)}</b>`, { parse_mode: 'HTML' });
+
+      // Thông báo cho khách hàng
+      try {
+        await bot.sendMessage(targetUserId, `🎉 Số dư của bạn vừa được cập nhật thành: <b>${formatPrice(amount)}</b>`, { parse_mode: 'HTML' });
+      } catch (_) {}
+    } catch (err) {
+      bot.sendMessage(msg.chat.id, `❌ Lỗi: ${err.message}`);
+    }
+  });
+
+  // ===== ADMIN: Cộng thêm tiền vào số dư (/addmoney <userId> <amount>) =====
+  bot.onText(/\/addmoney(?:\s+(\d+)\s+(-?\d+))?/, async (msg, match) => {
+    if (!isAdmin(msg.from.id)) return;
+    const targetUserId = match[1];
+    const amount = parseInt(match[2], 10);
+
+    if (!targetUserId || isNaN(amount)) {
+      return bot.sendMessage(msg.chat.id, '⚠️ <b>Sai cú pháp!</b>\n👉 Dùng: <code>/addmoney &lt;ID_User&gt; &lt;Số_tiền_cộng&gt;</code>\nVí dụ: <code>/addmoney 123456789 20000</code>', { parse_mode: 'HTML' });
+    }
+
+    try {
+      await db.addMoney(targetUserId, amount);
+      const newBal = await db.getUserBalance(targetUserId);
+      await bot.sendMessage(msg.chat.id, `✅ Đã cộng <b>${formatPrice(amount)}</b> cho user <code>${targetUserId}</code>.\n💰 Số dư hiện tại: <b>${formatPrice(newBal)}</b>`, { parse_mode: 'HTML' });
+
+      // Thông báo cho khách hàng
+      try {
+        await bot.sendMessage(targetUserId, `🎉 Tài khoản của bạn được cộng <b>${formatPrice(amount)}</b>.\n💰 Số dư hiện tại: <b>${formatPrice(newBal)}</b>`, { parse_mode: 'HTML' });
+      } catch (_) {}
+    } catch (err) {
+      bot.sendMessage(msg.chat.id, `❌ Lỗi: ${err.message}`);
+    }
+  });
+
   bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const userId = query.from.id;
@@ -288,11 +337,14 @@ async function startBot() {
         const orders = await db.getOrdersByUser(userId);
         const completed = orders.filter(o => o.status === 'completed');
         const totalSpent = completed.reduce((sum, o) => sum + (o.total_price || 0), 0);
+        const userBalance = await db.getUserBalance(userId);
+
         const text = '👤 HỒ SƠ CỦA BẠN\n' +
                      '━━━━━━━━━━━━━━━━━━━━━\n\n' +
                      '🆔 ID: ' + userId + '\n' +
                      '✨ Tên: ' + getFullName(query.from) + '\n' +
-                     '📧 Username: ' + (query.from.username ? '@' + query.from.username : 'Chưa có') + '\n\n' +
+                     '📧 Username: ' + (query.from.username ? '@' + query.from.username : 'Chưa có') + '\n' +
+                     '💳 Số dư ví: ' + formatPrice(userBalance) + '\n\n' +
                      '📊 THỐNG KÊ\n' +
                      '🛍️ Đơn hoàn thành: ' + completed.length + '\n' +
                      '💰 Đã chi tiêu: ' + formatPrice(totalSpent);
@@ -421,12 +473,10 @@ async function startBot() {
         const order = pendingOrders.get(orderIdNum);
         if (!order) return bot.answerCallbackQuery(query.id, { text: '✖️ Đơn hàng không tồn tại hoặc đã xử lý!', show_alert: true });
         
-        // Kiểm tra lock - nếu đang xử lý thì báo chờ
         if (processingOrders.has(orderIdNum)) {
           return bot.answerCallbackQuery(query.id, { text: '⏳ Đang xử lý, vui lòng chờ...', show_alert: true });
         }
         
-        // Lock trước khi check
         processingOrders.add(orderIdNum);
 
         const product = await db.getProduct(parseInt(productId));
@@ -459,12 +509,10 @@ async function startBot() {
           bot.answerCallbackQuery(query.id, { text: '❄️ Chưa nhận được thanh toán! Thử lại sau.', show_alert: true });
         }
         
-        // Unlock
         processingOrders.delete(orderIdNum);
         return;
       }
 
-      // Hủy broadcast
       if (data === 'cancel_broadcast') {
         waitingEdit.delete(userId);
         bot.editMessageText('❌ Đã hủy gửi thông báo.', { chat_id: chatId, message_id: query.message.message_id });
@@ -472,7 +520,6 @@ async function startBot() {
       }
 
       if (data.startsWith('cancel_') || data === 'back_menu') {
-        // Xóa đơn hàng pending nếu có
         if (data.startsWith('cancel_')) {
           const orderId = parseInt(data.split('_')[1]);
           if (pendingOrders.has(orderId)) {
@@ -497,7 +544,6 @@ async function startBot() {
       // ===== ADMIN CALLBACKS =====
       if (data.startsWith('adm_') && isAdmin(userId)) {
 
-        // Xem chi tiết sản phẩm
         if (data.startsWith('adm_product_')) {
           const productId = parseInt(data.split('_')[2]);
           const product = await db.getProduct(productId);
@@ -514,7 +560,6 @@ async function startBot() {
           bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: adminProductKeyboard(productId) } });
         }
 
-        // Sửa bảng giá
         if (data.startsWith('adm_edit_tiers_')) {
           const productId = parseInt(data.split('_')[3]);
           const product = await db.getProduct(productId);
@@ -539,7 +584,6 @@ async function startBot() {
           bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
         }
 
-        // Quay lại danh sách
         if (data === 'adm_back_list') {
           const products = await db.getAllProducts();
           const keyboard = products.map(p => [{ text: wideInlineLabel('📦 #' + p.id + ' ' + p.name + ' ┃ 🎯' + p.stock_count), callback_data: 'adm_product_' + p.id }]);
@@ -551,7 +595,6 @@ async function startBot() {
           bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
         }
 
-        // Thêm sản phẩm mới
         if (data === 'adm_add_product') {
           waitingEdit.set(userId, { field: 'new_product', messageId: query.message.message_id });
           const text = '➕ THÊM SẢN PHẨM MỚI\n' +
@@ -563,28 +606,24 @@ async function startBot() {
           bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('❌ Hủy'), callback_data: 'adm_back_list' }]] } });
         }
 
-        // Sửa tên
         if (data.startsWith('adm_edit_name_')) {
           const productId = parseInt(data.split('_')[3]);
           waitingEdit.set(userId, { productId, field: 'name', messageId: query.message.message_id });
           bot.editMessageText('✏️ Nhập tên mới cho sản phẩm #' + productId + ':', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
         }
 
-        // Sửa giá
         if (data.startsWith('adm_edit_price_')) {
           const productId = parseInt(data.split('_')[3]);
           waitingEdit.set(userId, { productId, field: 'price', messageId: query.message.message_id });
           bot.editMessageText('💵 Nhập giá mới (số) cho sản phẩm #' + productId + ':', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
         }
 
-        // Sửa mô tả
         if (data.startsWith('adm_edit_desc_')) {
           const productId = parseInt(data.split('_')[3]);
           waitingEdit.set(userId, { productId, field: 'desc', messageId: query.message.message_id });
           bot.editMessageText('📝 Nhập mô tả mới cho sản phẩm #' + productId + ':', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
         }
 
-        // Thêm stock
         if (data.startsWith('adm_addstock_')) {
           const productId = parseInt(data.split('_')[2]);
           const product = await db.getProduct(productId);
@@ -592,7 +631,6 @@ async function startBot() {
           bot.editMessageText('➕ Thêm stock cho: ' + product.name + '\n\nGửi danh sách tài khoản (mỗi dòng 1 tk):', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
         }
 
-        // Xem stock
         if (data.startsWith('adm_viewstock_')) {
           const productId = parseInt(data.split('_')[2]);
           const product = await db.getProduct(productId);
@@ -616,14 +654,12 @@ async function startBot() {
           bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
         }
 
-        // Xóa 1 stock
         if (data.startsWith('adm_delstock_')) {
           const parts = data.split('_');
           const productId = parseInt(parts[2]);
           const stockId = parseInt(parts[3]);
           await db.deleteStock(stockId);
           bot.answerCallbackQuery(query.id, { text: '🎯 Đã xóa!' });
-          // Refresh lại view
           const product = await db.getProduct(productId);
           const stocks = await db.getStockByProduct(productId);
           const available = stocks.filter(s => !s.is_sold);
@@ -645,7 +681,6 @@ async function startBot() {
           bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
         }
 
-        // Xóa tất cả stock - xác nhận
         if (data.startsWith('adm_clearstock_')) {
           const productId = parseInt(data.split('_')[2]);
           const product = await db.getProduct(productId);
@@ -655,12 +690,10 @@ async function startBot() {
             { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('🗑️ Xóa hết'), callback_data: 'adm_confirmclear_' + productId }, { text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_viewstock_' + productId }]] } });
         }
 
-        // Xác nhận xóa tất cả stock
         if (data.startsWith('adm_confirmclear_')) {
           const productId = parseInt(data.split('_')[2]);
           await db.clearStock(productId);
           bot.answerCallbackQuery(query.id, { text: '🎯 Đã xóa tất cả stock!' });
-          // Quay lại product detail
           const product = await db.getProduct(productId);
           const stocks = await db.getStockByProduct(productId);
           const available = stocks.filter(s => !s.is_sold).length;
@@ -669,14 +702,12 @@ async function startBot() {
           bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: adminProductKeyboard(productId) } });
         }
 
-        // Xóa sản phẩm - xác nhận
         if (data.startsWith('adm_delete_')) {
           const productId = parseInt(data.split('_')[2]);
           const product = await db.getProduct(productId);
           bot.editMessageText('⚠️ Xác nhận xóa sản phẩm:\n\n📦 ' + product.name + '\n\nHành động này không thể hoàn tác!', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('🗑️ Xóa luôn'), callback_data: 'adm_confirm_delete_' + productId }, { text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
         }
 
-        // Xác nhận xóa
         if (data.startsWith('adm_confirm_delete_')) {
           const productId = parseInt(data.split('_')[3]);
           await db.deleteProduct(productId);
@@ -691,9 +722,8 @@ async function startBot() {
     bot.answerCallbackQuery(query.id);
   });
 
-
   const waitingStock = new Map();
-  const waitingEdit = new Map(); // {userId: {productId, field}}
+  const waitingEdit = new Map();
 
   // ===== ADMIN: Quản lý sản phẩm bằng menu =====
   bot.onText(/\/products/, async (msg) => {
@@ -762,7 +792,6 @@ async function startBot() {
     bot.sendMessage(msg.chat.id, text);
   });
 
-  // /broadcast - Gửi thông báo
   bot.onText(/^\/broadcast$/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
     const users = await db.getAllUsers();
@@ -801,7 +830,7 @@ async function startBot() {
     } else {
       text += '📊 Tổng: ' + users.length + ' users\n\n';
       users.slice(0, 50).forEach((u, i) => {
-        text += (i + 1) + '. ' + u.first_name + ' │ ' + u.id + '\n';
+        text += (i + 1) + '. ' + u.first_name + ' │ ' + u.id + ' │ 💰 ' + formatPrice(u.balance) + '\n';
       });
     }
     bot.sendMessage(msg.chat.id, text);
@@ -835,7 +864,6 @@ async function startBot() {
       
       waitingEdit.delete(msg.from.id);
       
-      // Tạo đơn hàng với giá theo tier
       const totalPrice = db.calculatePrice(product, qty);
       const unitPrice = db.getUnitPrice(product, qty);
       const content = generateCode();
@@ -868,7 +896,6 @@ async function startBot() {
   bot.on('message', async (msg) => {
     if (!msg.text || msg.text.startsWith('/') || !isAdmin(msg.from.id)) return;
 
-    // Xử lý thêm stock
     const pid = waitingStock.get(msg.from.id);
     if (pid) {
       const accs = msg.text.split('\n').filter(a => a.trim());
@@ -880,11 +907,9 @@ async function startBot() {
       return;
     }
 
-    // Xử lý sửa/thêm sản phẩm
     const editInfo = waitingEdit.get(msg.from.id);
     if (editInfo) {
       
-      // Gửi broadcast
       if (editInfo.field === 'broadcast') {
         waitingEdit.delete(msg.from.id);
         const users = await db.getAllUsers();
@@ -905,7 +930,6 @@ async function startBot() {
         return;
       }
       
-      // Thêm sản phẩm MỚI
       if (editInfo.field === 'new_product') {
         const parts = msg.text.split('|').map(s => s.trim());
         const name = parts[0];
@@ -921,7 +945,6 @@ async function startBot() {
         const result = await db.addProduct(name, price, desc);
         waitingEdit.delete(msg.from.id);
         
-        // Hiển thị sản phẩm vừa tạo
         const productId = result.lastInsertRowid;
         const text = '✅ ĐÃ THÊM SẢN PHẨM\n' +
                      '━━━━━━━━━━━━━━━━━━━━━\n\n' +
@@ -933,7 +956,6 @@ async function startBot() {
         return;
       }
       
-      // Sửa sản phẩm hiện có
       const product = await db.getProduct(editInfo.productId);
       if (!product) {
         waitingEdit.delete(msg.from.id);
@@ -966,7 +988,6 @@ async function startBot() {
           return;
         }
         
-        // Parse tiers: "10:45000, 20:40000"
         const tiers = [];
         const parts = msg.text.split(',').map(s => s.trim());
         for (const part of parts) {
@@ -981,7 +1002,6 @@ async function startBot() {
           tiers.push({ min, price });
         }
         
-        // Sắp xếp theo min
         tiers.sort((a, b) => a.min - b.min);
         
         await db.updatePriceTiers(editInfo.productId, tiers);
@@ -996,7 +1016,6 @@ async function startBot() {
       await db.updateProduct(editInfo.productId, newName, newPrice, newDesc);
       waitingEdit.delete(msg.from.id);
 
-      // Hiển thị lại chi tiết sản phẩm
       const updatedProduct = await db.getProduct(editInfo.productId);
       const stocks = await db.getStockByProduct(editInfo.productId);
       const available = stocks.filter(s => !s.is_sold).length;

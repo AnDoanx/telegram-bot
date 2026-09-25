@@ -1,4 +1,4 @@
-
+const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 
@@ -97,8 +97,7 @@ async function initMysql() {
         content VARCHAR(255) NOT NULL,
         status VARCHAR(50) DEFAULT 'pending',
         created_at BIGINT,
-        INDEX idx_deposit_user (user_id),
-        INDEX idx_deposit_status (status)
+        INDEX idx_dep_status (status)
       )
     `);
 
@@ -161,7 +160,7 @@ function initSqlite() {
       status TEXT DEFAULT 'pending',
       created_at INTEGER
     );
-    CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
+    CREATE INDEX IF NOT EXISTS idx_dep_status ON deposits(status);
   `);
 
   try {
@@ -467,8 +466,6 @@ async function keepAlive() {
   }
 }
 
-// ==================== CÁC HÀM XỬ LÝ VÍ & SỐ DƯ ====================
-
 async function getUserBalance(userId) {
   const rows = await queryAll('SELECT balance FROM users WHERE id = ?', [userId]);
   if (!rows || rows.length === 0) return 0;
@@ -486,11 +483,9 @@ async function addMoney(userId, amount) {
 }
 
 async function deductBalance(userId, amount) {
-  const val = parseInt(amount, 10) || 0;
-  return await queryRun('UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?', [val, userId, val]);
+  const deductVal = Math.max(0, parseInt(amount, 10) || 0);
+  return await queryRun('UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?', [deductVal, userId, deductVal]);
 }
-
-// ==================== HỆ THỐNG NẠP TIỀN (DEPOSITS) ====================
 
 async function createDeposit(userId, amount, content) {
   const createdAt = Date.now();
@@ -498,12 +493,12 @@ async function createDeposit(userId, amount, content) {
     'INSERT INTO deposits (user_id, amount, content, status, created_at) VALUES (?, ?, ?, ?, ?)',
     [userId, amount, content, 'pending', createdAt]
   );
-  return { id: result.insertId, createdAt };
+  return { insertId: result.insertId, createdAt };
 }
 
 async function getPendingDeposits() {
   const rows = await queryAll("SELECT id, user_id, amount, content, created_at FROM deposits WHERE status = 'pending'");
-  return rows.map((r) => ({
+  return rows.map(r => ({
     id: r.id,
     userId: r.user_id,
     amount: r.amount,
@@ -542,14 +537,11 @@ module.exports = {
   keepAlive,
   calculatePrice,
   getUnitPrice,
-  // Xử lý tiền ví
   getUserBalance,
   setUserBalance,
   addMoney,
   deductBalance,
-  // Xử lý nạp tiền
   createDeposit,
   getPendingDeposits,
   updateDepositStatus
 };
-

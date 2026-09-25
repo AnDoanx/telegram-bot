@@ -4,7 +4,16 @@ const db = require('./database');
 const sepay = require('./sepay');
 
 const formatPrice = (price) => (price || 0).toLocaleString('vi-VN') + ' VND';
-const isAdmin = (userId) => config.ADMIN_IDS.map(id => id.toString()).includes(userId.toString());
+
+// Nhận diện Admin chuẩn xác cho cả kiểu chuỗi hoặc mảng
+const isAdmin = (userId) => {
+  if (!config.ADMIN_IDS) return false;
+  const list = Array.isArray(config.ADMIN_IDS) 
+    ? config.ADMIN_IDS 
+    : config.ADMIN_IDS.toString().split(',').map(s => s.trim());
+  return list.map(id => id.toString()).includes(userId.toString());
+};
+
 const getFullName = (user) => (user.first_name + (user.last_name ? ' ' + user.last_name : '')).trim();
 const ORDER_TIMEOUT_MS = 20 * 60 * 1000;
 
@@ -99,9 +108,12 @@ function adminProductKeyboard(productId) {
   ];
 }
 
+// Khai báo toàn bộ bộ nhớ tạm ở đầu file
 const pendingOrders = new Map();
 const pendingDeposits = new Map();
 const processingOrders = new Set(); 
+const waitingStock = new Map();
+const waitingEdit = new Map();
 
 function generateCode(prefix = '') {
   const existingCodes = new Set([...pendingOrders.values()].map(o => o.content));
@@ -154,9 +166,17 @@ async function startBot() {
   });
   console.log('💳 Loaded ' + savedDeposits.length + ' pending deposits từ DB');
 
-  const bot = new TelegramBot(config.BOT_TOKEN, {
-    polling: { params: { timeout: 10 }, interval: 300 }
-  });
+  const bot = new TelegramBot(config.BOT_TOKEN, { polling: false });
+
+  // Xóa Webhook cũ để nhận đầy đủ cập nhật Polling
+  try {
+    await bot.deleteWebHook();
+    console.log('✅ Đã làm mới Webhook/Polling thành công');
+  } catch (err) {
+    console.log('Lưu ý khi xóa Webhook:', err.message);
+  }
+
+  bot.startPolling({ params: { timeout: 10 }, interval: 300 });
 
   bot.setMyCommands([
     { command: 'start', description: 'Bắt đầu' },
@@ -178,7 +198,7 @@ async function startBot() {
 
   bot.on('polling_error', (err) => console.log('Polling error:', err.message));
 
-  // Tự động quét SePay kiểm tra thanh toán đơn mua & nạp ví
+  // Tự động quét SePay kiểm tra thanh toán
   setInterval(async () => {
     if (pendingOrders.size === 0 && pendingDeposits.size === 0) return; 
     
@@ -306,7 +326,6 @@ async function startBot() {
     });
   });
 
-  // /setmoney - Lệnh quản lý số dư duy nhất cho Admin
   bot.onText(/\/setmoney(?:\s+(\d+)\s+(\d+))?/, async (msg, match) => {
     if (!isAdmin(msg.from.id)) return;
     const targetUserId = match[1];
@@ -355,7 +374,13 @@ async function startBot() {
     });
   }
 
+  // Xử lý toàn bộ sự kiện click nút bấm Inline Keyboard
   bot.on('callback_query', async (query) => {
+    try {
+      // Xác nhận ngay với Telegram để tắt biểu tượng xoay
+      await bot.answerCallbackQuery(query.id);
+    } catch (_) {}
+
     const chatId = query.message.chat.id;
     const userId = query.from.id;
     const data = query.data;
@@ -363,13 +388,13 @@ async function startBot() {
     try {
       if (data === 'main_shop') {
         const products = await db.getAllProducts();
-        if (products.length === 0) return bot.answerCallbackQuery(query.id, { text: '❄️ Chưa có sản phẩm!' });
+        if (products.length === 0) return bot.sendMessage(chatId, '❄️ Chưa có sản phẩm!');
         const keyboard = products.map(p => [{ text: wideInlineLabel('🎁 ' + p.name + ' ┃ ' + getDisplayPrice(p) + ' ┃ 📦' + p.stock_count), callback_data: 'product_' + p.id }]);
         keyboard.push([{ text: wideInlineLabel('👤 Hồ sơ & Nạp ví'), callback_data: 'main_profile' }, { text: wideInlineLabel('📋 Lịch sử'), callback_data: 'main_history' }]);
         const text = '🛒 CỬA HÀNG\n' +
                      '━━━━━━━━━━━━━━━━━━━━━\n\n' +
                      '⛄ Chọn sản phẩm:';
-        bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
+        return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
       }
 
       if (data === 'main_profile') {
@@ -393,9 +418,9 @@ async function startBot() {
         ];
         if (query.message.photo) {
           await bot.deleteMessage(chatId, query.message.message_id);
-          bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
+          return bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
         } else {
-          bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
+          return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
         }
       }
 
@@ -409,7 +434,7 @@ async function startBot() {
           [{ text: wideInlineLabel('500.000 đ'), callback_data: 'dep_amt_500000' }, { text: wideInlineLabel('✏️ Nhập số khác'), callback_data: 'dep_custom' }],
           [{ text: wideInlineLabel('◀️ Quay lại hồ sơ'), callback_data: 'main_profile' }]
         ];
-        bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
+        return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
       }
 
       if (data.startsWith('dep_amt_')) {
@@ -424,18 +449,17 @@ async function startBot() {
                      '━━━━━━━━━━━━━━━━━━━━━\n\n' +
                      'Nhập số tiền muốn nạp (tối thiểu 10.000 VND):\n' +
                      'Ví dụ: <code>150000</code>';
-        bot.editMessageText(text, {
+        return bot.editMessageText(text, {
           chat_id: chatId,
           message_id: query.message.message_id,
           parse_mode: 'HTML',
           reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('❌ Hủy'), callback_data: 'deposit_menu' }]] }
         });
-        return;
       }
 
       if (data === 'main_history') {
         const orders = await db.getOrderHistory(userId);
-        if (orders.length === 0) return bot.answerCallbackQuery(query.id, { text: '❄️ Chưa có lịch sử!' });
+        if (orders.length === 0) return bot.sendMessage(chatId, '❄️ Bạn chưa có lịch sử đơn hàng nào!');
         let text = '📋 LỊCH SỬ MUA HÀNG\n' +
                    '━━━━━━━━━━━━━━━━━━━━━\n\n';
         orders.slice(0, 10).forEach((o, idx) => {
@@ -446,7 +470,7 @@ async function startBot() {
           text += '   💵 ' + formatPrice(o.total_price || 0) + '\n';
           if (idx < orders.length - 1) text += '\n';
         });
-        bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('◀️ Quay lại'), callback_data: 'back_main' }]] } });
+        return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('◀️ Quay lại'), callback_data: 'back_main' }]] } });
       }
 
       if (data === 'back_main') {
@@ -458,15 +482,15 @@ async function startBot() {
                      (products.length > 0 ? '⛄ Chọn sản phẩm:' : '⛄ Chưa có sản phẩm nào!');
         if (query.message.photo) {
           await bot.deleteMessage(chatId, query.message.message_id);
-          bot.sendMessage(chatId, text, { reply_markup: { inline_keyboard: keyboard } });
+          return bot.sendMessage(chatId, text, { reply_markup: { inline_keyboard: keyboard } });
         } else {
-          bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
+          return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
         }
       }
 
       if (data.startsWith('product_')) {
         const product = await db.getProduct(parseInt(data.split('_')[1]));
-        if (!product) return bot.answerCallbackQuery(query.id, { text: '❄️ Không tồn tại!' });
+        if (!product) return bot.sendMessage(chatId, '❄️ Sản phẩm không tồn tại!');
         const stock = product.stock_count;
         
         const presets = [1, 2, 3, 5, 10];
@@ -502,13 +526,13 @@ async function startBot() {
                      '📊 Còn: ' + stock + ' sản phẩm\n' +
                      (product.description ? '📝 ' + product.description + '\n' : '') +
                      '\n⛄ Chọn số lượng:';
-        bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
+        return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
       }
       
       if (data.startsWith('customqty_')) {
         const productId = parseInt(data.split('_')[1]);
         const product = await db.getProduct(productId);
-        if (!product) return bot.answerCallbackQuery(query.id, { text: '❄️ Không tồn tại!' });
+        if (!product) return bot.sendMessage(chatId, '❄️ Sản phẩm không tồn tại!');
         waitingEdit.set(userId, { field: 'custom_qty', productId, messageId: query.message.message_id });
         
         const text = '📝 NHẬP SỐ LƯỢNG\n' +
@@ -517,15 +541,16 @@ async function startBot() {
                      productPriceBlockUser(product) +
                      '📊 Còn: ' + product.stock_count + ' sp\n\n' +
                      '✏️ Nhập số lượng muốn mua:';
-        bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('❌ Hủy'), callback_data: 'product_' + productId }]] } });
+        return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('❌ Hủy'), callback_data: 'product_' + productId }]] } });
       }
 
-      // 1. Khi bấm chọn số lượng -> Hiện bảng lựa chọn phương thức thanh toán
       if (data.startsWith('qty_')) {
         const [, productId, quantity] = data.split('_');
         const product = await db.getProduct(parseInt(productId));
         const qty = parseInt(quantity);
-        if (product.stock_count < qty) return bot.answerCallbackQuery(query.id, { text: '✖️ Không đủ hàng!', show_alert: true });
+        if (product.stock_count < qty) {
+          return bot.sendMessage(chatId, '✖️ Không đủ hàng trong kho!');
+        }
 
         const totalPrice = db.calculatePrice(product, qty);
         const unitPrice = db.getUnitPrice(product, qty);
@@ -553,7 +578,6 @@ async function startBot() {
         });
       }
 
-      // 2. Xử lý khi khách bấm nút "💳 Thanh toán bằng VÍ TIỀN"
       if (data.startsWith('paywallet_')) {
         const [, productId, quantity] = data.split('_');
         const product = await db.getProduct(parseInt(productId));
@@ -563,14 +587,11 @@ async function startBot() {
 
         if (userBalance < totalPrice) {
           const missing = totalPrice - userBalance;
-          return bot.answerCallbackQuery(query.id, {
-            text: `❌ Số dư không đủ! Bạn còn thiếu ${formatPrice(missing)}. Hãy nạp thêm tiền vào ví!`,
-            show_alert: true
-          });
+          return bot.sendMessage(chatId, `❌ Số dư không đủ! Bạn còn thiếu ${formatPrice(missing)}. Hãy nạp thêm tiền vào ví!`);
         }
 
         if (product.stock_count < qty) {
-          return bot.answerCallbackQuery(query.id, { text: '✖️ Rất tiếc, sản phẩm vừa hết hàng trong kho!', show_alert: true });
+          return bot.sendMessage(chatId, '✖️ Rất tiếc, sản phẩm vừa hết hàng trong kho!');
         }
 
         await db.deductBalance(userId, totalPrice);
@@ -606,7 +627,6 @@ async function startBot() {
         return;
       }
 
-      // 3. Xử lý khi khách bấm nút "🏦 Chuyển khoản qua NGÂN HÀNG (QR)"
       if (data.startsWith('paybank_')) {
         const [, productId, quantity] = data.split('_');
         const product = await db.getProduct(parseInt(productId));
@@ -649,10 +669,10 @@ async function startBot() {
         const [, orderId, productId, quantity] = data.split('_');
         const orderIdNum = parseInt(orderId);
         const order = pendingOrders.get(orderIdNum);
-        if (!order) return bot.answerCallbackQuery(query.id, { text: '✖️ Đơn hàng không tồn tại hoặc đã xử lý!', show_alert: true });
+        if (!order) return bot.sendMessage(chatId, '✖️ Đơn hàng không tồn tại hoặc đã xử lý!');
         
         if (processingOrders.has(orderIdNum)) {
-          return bot.answerCallbackQuery(query.id, { text: '⏳ Đang xử lý, vui lòng chờ...', show_alert: true });
+          return bot.sendMessage(chatId, '⏳ Đang xử lý, vui lòng chờ...');
         }
         
         processingOrders.add(orderIdNum);
@@ -671,7 +691,6 @@ async function startBot() {
           if (accounts.length > 0) {
             await db.updateOrder(orderIdNum, null, 'completed');
             let accText = accounts.map((a, idx) => '  ' + (idx + 1) + '. ' + a).join('\n');
-            bot.answerCallbackQuery(query.id, { text: '✅ Thanh toán thành công!' });
             const successMsg = '✅ THANH TOÁN THÀNH CÔNG!\n' +
                                '━━━━━━━━━━━━━━━━━━━━━\n\n' +
                                '🎁 ' + product.name + ' x' + qty + '\n\n' +
@@ -684,7 +703,7 @@ async function startBot() {
             config.ADMIN_IDS.forEach(id => bot.sendMessage(id, '🔔 Đơn #' + orderId + ' ĐÃ THANH TOÁN\n👤 ' + getFullName(query.from) + ' (' + userId + ')\n🎁 ' + product.name + ' x' + qty + '\n💵 ' + formatPrice(order.totalPrice)));
           }
         } else {
-          bot.answerCallbackQuery(query.id, { text: '❄️ Chưa nhận được thanh toán! Thử lại sau.', show_alert: true });
+          await bot.sendMessage(chatId, '❄️ Chưa nhận được thanh toán! Thử lại sau.');
         }
         
         processingOrders.delete(orderIdNum);
@@ -693,8 +712,7 @@ async function startBot() {
 
       if (data === 'cancel_broadcast') {
         waitingEdit.delete(userId);
-        bot.editMessageText('❌ Đã hủy gửi thông báo.', { chat_id: chatId, message_id: query.message.message_id });
-        return;
+        return bot.editMessageText('❌ Đã hủy gửi thông báo.', { chat_id: chatId, message_id: query.message.message_id });
       }
 
       if (data.startsWith('cancel_') || data === 'back_menu') {
@@ -713,9 +731,9 @@ async function startBot() {
                      (products.length > 0 ? '⛄ Chọn sản phẩm:' : '⛄ Chưa có sản phẩm nào!');
         if (query.message.photo) {
           await bot.deleteMessage(chatId, query.message.message_id);
-          bot.sendMessage(chatId, text, { reply_markup: { inline_keyboard: keyboard } });
+          return bot.sendMessage(chatId, text, { reply_markup: { inline_keyboard: keyboard } });
         } else {
-          bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
+          return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
         }
       }
 
@@ -725,7 +743,7 @@ async function startBot() {
         if (data.startsWith('adm_product_')) {
           const productId = parseInt(data.split('_')[2]);
           const product = await db.getProduct(productId);
-          if (!product) return bot.answerCallbackQuery(query.id, { text: '❄️ Không tồn tại!' });
+          if (!product) return bot.sendMessage(chatId, '❄️ Sản phẩm không tồn tại!');
           const stocks = await db.getStockByProduct(productId);
           const available = stocks.filter(s => !s.is_sold).length;
           const sold = stocks.length - available;
@@ -735,7 +753,7 @@ async function startBot() {
                        productPriceBlockAdmin(product) +
                        '📝 Mô tả: ' + (product.description || 'Chưa có') + '\n\n' +
                        '📊 KHO: ✅' + available + ' còn │ 🔴' + sold + ' đã bán';
-          bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: adminProductKeyboard(productId) } });
+          return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: adminProductKeyboard(productId) } });
         }
 
         if (data.startsWith('adm_edit_tiers_')) {
@@ -759,7 +777,7 @@ async function startBot() {
                        '1:50000, 10:45000, 20:40000\n\n' +
                        '(Mua 1-9: 50k, 10-19: 45k, 20+: 40k)\n\n' +
                        '💡 Nhập "xoa" để xóa bảng giá';
-          bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
+          return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
         }
 
         if (data === 'adm_back_list') {
@@ -770,7 +788,7 @@ async function startBot() {
                        '━━━━━━━━━━━━━━━━━━━━━\n\n' +
                        '📊 Tổng: ' + products.length + ' sản phẩm\n' +
                        '⛄ Chọn để sửa/xóa:';
-          bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
+          return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
         }
 
         if (data === 'adm_add_product') {
@@ -781,32 +799,32 @@ async function startBot() {
                        'Tên|Giá|Mô tả\n\n' +
                        '▸ Ví dụ:\n' +
                        'Netflix 1 tháng|50000|Premium';
-          bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('❌ Hủy'), callback_data: 'adm_back_list' }]] } });
+          return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('❌ Hủy'), callback_data: 'adm_back_list' }]] } });
         }
 
         if (data.startsWith('adm_edit_name_')) {
           const productId = parseInt(data.split('_')[3]);
           waitingEdit.set(userId, { productId, field: 'name', messageId: query.message.message_id });
-          bot.editMessageText('✏️ Nhập tên mới cho sản phẩm #' + productId + ':', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
+          return bot.editMessageText('✏️ Nhập tên mới cho sản phẩm #' + productId + ':', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
         }
 
         if (data.startsWith('adm_edit_price_')) {
           const productId = parseInt(data.split('_')[3]);
           waitingEdit.set(userId, { productId, field: 'price', messageId: query.message.message_id });
-          bot.editMessageText('💵 Nhập giá mới (số) cho sản phẩm #' + productId + ':', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
+          return bot.editMessageText('💵 Nhập giá mới (số) cho sản phẩm #' + productId + ':', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
         }
 
         if (data.startsWith('adm_edit_desc_')) {
           const productId = parseInt(data.split('_')[3]);
           waitingEdit.set(userId, { productId, field: 'desc', messageId: query.message.message_id });
-          bot.editMessageText('📝 Nhập mô tả mới cho sản phẩm #' + productId + ':', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
+          return bot.editMessageText('📝 Nhập mô tả mới cho sản phẩm #' + productId + ':', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
         }
 
         if (data.startsWith('adm_addstock_')) {
           const productId = parseInt(data.split('_')[2]);
           const product = await db.getProduct(productId);
           waitingStock.set(userId, productId);
-          bot.editMessageText('➕ Thêm stock cho: ' + product.name + '\n\nGửi danh sách tài khoản (mỗi dòng 1 tk):', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
+          return bot.editMessageText('➕ Thêm stock cho: ' + product.name + '\n\nGửi danh sách tài khoản (mỗi dòng 1 tk):', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
         }
 
         if (data.startsWith('adm_viewstock_')) {
@@ -829,7 +847,7 @@ async function startBot() {
           }
           keyboard.push([{ text: wideInlineLabel('➕ Thêm stock'), callback_data: 'adm_addstock_' + productId }]);
           keyboard.push([{ text: wideInlineLabel('← Quay lại'), callback_data: 'adm_product_' + productId }]);
-          bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
+          return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
         }
 
         if (data.startsWith('adm_delstock_')) {
@@ -837,7 +855,6 @@ async function startBot() {
           const productId = parseInt(parts[2]);
           const stockId = parseInt(parts[3]);
           await db.deleteStock(stockId);
-          bot.answerCallbackQuery(query.id, { text: '🎯 Đã xóa!' });
           const product = await db.getProduct(productId);
           const stocks = await db.getStockByProduct(productId);
           const available = stocks.filter(s => !s.is_sold);
@@ -856,7 +873,7 @@ async function startBot() {
           }
           keyboard.push([{ text: wideInlineLabel('➕ Thêm stock'), callback_data: 'adm_addstock_' + productId }]);
           keyboard.push([{ text: wideInlineLabel('← Quay lại'), callback_data: 'adm_product_' + productId }]);
-          bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
+          return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
         }
 
         if (data.startsWith('adm_clearstock_')) {
@@ -864,26 +881,25 @@ async function startBot() {
           const product = await db.getProduct(productId);
           const stocks = await db.getStockByProduct(productId);
           const available = stocks.filter(s => !s.is_sold).length;
-          bot.editMessageText('⚠️ Xác nhận xóa TẤT CẢ stock?\n\n📦 ' + product.name + '\n🗑️ Sẽ xóa: ' + available + ' tài khoản\n\nHành động này không thể hoàn tác!',
+          return bot.editMessageText('⚠️ Xác nhận xóa TẤT CẢ stock?\n\n📦 ' + product.name + '\n🗑️ Sẽ xóa: ' + available + ' tài khoản\n\nHành động này không thể hoàn tác!',
             { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('🗑️ Xóa hết'), callback_data: 'adm_confirmclear_' + productId }, { text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_viewstock_' + productId }]] } });
         }
 
         if (data.startsWith('adm_confirmclear_')) {
           const productId = parseInt(data.split('_')[2]);
           await db.clearStock(productId);
-          bot.answerCallbackQuery(query.id, { text: '🎯 Đã xóa tất cả stock!' });
           const product = await db.getProduct(productId);
           const stocks = await db.getStockByProduct(productId);
           const available = stocks.filter(s => !s.is_sold).length;
           const sold = stocks.length - available;
           const text = '📦 ' + product.name + '\n\n◉ ID: #' + product.id + '\n' + productPriceBlockAdmin(product) + '◉ Mô tả: ' + (product.description || 'Chưa có') + '\n\n📊 Kho hàng:\n◉ Còn: ' + available + '\n◉ Đã bán: ' + sold;
-          bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: adminProductKeyboard(productId) } });
+          return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: adminProductKeyboard(productId) } });
         }
 
         if (data.startsWith('adm_delete_')) {
           const productId = parseInt(data.split('_')[2]);
           const product = await db.getProduct(productId);
-          bot.editMessageText('⚠️ Xác nhận xóa sản phẩm:\n\n📦 ' + product.name + '\n\nHành động này không thể hoàn tác!', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('🗑️ Xóa luôn'), callback_data: 'adm_confirm_delete_' + productId }, { text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
+          return bot.editMessageText('⚠️ Xác nhận xóa sản phẩm:\n\n📦 ' + product.name + '\n\nHành động này không thể hoàn tác!', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('🗑️ Xóa luôn'), callback_data: 'adm_confirm_delete_' + productId }, { text: wideInlineLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]] } });
         }
 
         if (data.startsWith('adm_confirm_delete_')) {
@@ -892,16 +908,14 @@ async function startBot() {
           const products = await db.getAllProducts();
           const keyboard = products.map(p => [{ text: wideInlineLabel('#' + p.id + ' ' + p.name + ' | 📦 ' + p.stock_count), callback_data: 'adm_product_' + p.id }]);
           keyboard.push([{ text: wideInlineLabel('➕ Thêm sản phẩm mới'), callback_data: 'adm_add_product' }]);
-          bot.editMessageText('🎯 Đã xóa sản phẩm #' + productId + '!\n\n⚙️ Quản lý sản phẩm:', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
+          return bot.editMessageText('🎯 Đã xóa sản phẩm #' + productId + '!\n\n⚙️ Quản lý sản phẩm:', { chat_id: chatId, message_id: query.message.message_id, reply_markup: { inline_keyboard: keyboard } });
         }
       }
 
-    } catch (e) { console.log('Callback error:', e.message); }
-    bot.answerCallbackQuery(query.id);
+    } catch (e) { 
+      console.log('Callback error:', e.message); 
+    }
   });
-
-  const waitingStock = new Map();
-  const waitingEdit = new Map();
 
   // ===== ADMIN: Quản lý sản phẩm bằng menu =====
   bot.onText(/\/products/, async (msg) => {
@@ -970,7 +984,6 @@ async function startBot() {
     bot.sendMessage(msg.chat.id, text);
   });
 
-  // /broadcast - Gửi thông báo
   bot.onText(/^\/broadcast$/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
     const users = await db.getAllUsers();
@@ -1015,14 +1028,13 @@ async function startBot() {
     bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
   });
 
-  // Handler xử lý text người dùng gửi (nhập số lượng mua tùy chỉnh, nạp tiền tùy chỉnh)
+  // Handler xử lý text người dùng gửi
   bot.on('message', async (msg) => {
     if (!msg.text || msg.text.startsWith('/')) return;
     
     const editInfo = waitingEdit.get(msg.from.id);
     if (!editInfo) return;
 
-    // 1. Nhập số lượng mua tùy chỉnh -> cũng hiện chọn phương thức VÍ hoặc QR
     if (editInfo.field === 'custom_qty') {
       const qty = parseInt(msg.text.trim());
       const product = await db.getProduct(editInfo.productId);
@@ -1070,7 +1082,6 @@ async function startBot() {
       });
     }
 
-    // 2. Nhập số tiền nạp tùy chỉnh
     if (editInfo.field === 'custom_deposit') {
       const amount = parseInt(msg.text.trim(), 10);
       waitingEdit.delete(msg.from.id);
@@ -1090,7 +1101,6 @@ async function startBot() {
   bot.on('message', async (msg) => {
     if (!msg.text || msg.text.startsWith('/') || !isAdmin(msg.from.id)) return;
 
-    // Xử lý thêm stock
     const pid = waitingStock.get(msg.from.id);
     if (pid) {
       const accs = msg.text.split('\n').filter(a => a.trim());
@@ -1102,11 +1112,8 @@ async function startBot() {
       return;
     }
 
-    // Xử lý sửa/thêm sản phẩm
     const editInfo = waitingEdit.get(msg.from.id);
     if (editInfo) {
-      
-      // Gửi broadcast
       if (editInfo.field === 'broadcast') {
         waitingEdit.delete(msg.from.id);
         const users = await db.getAllUsers();
@@ -1127,7 +1134,6 @@ async function startBot() {
         return;
       }
       
-      // Thêm sản phẩm MỚI
       if (editInfo.field === 'new_product') {
         const parts = msg.text.split('|').map(s => s.trim());
         const name = parts[0];
@@ -1154,7 +1160,6 @@ async function startBot() {
         return;
       }
       
-      // Sửa sản phẩm hiện có
       const product = await db.getProduct(editInfo.productId);
       if (!product) {
         waitingEdit.delete(msg.from.id);

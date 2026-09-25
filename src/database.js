@@ -89,13 +89,22 @@ async function initMysql() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS deposits (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        user_id BIGINT NOT NULL,
+        amount INT NOT NULL,
+        content VARCHAR(255) NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        created_at BIGINT,
+        INDEX idx_deposit_user (user_id),
+        INDEX idx_deposit_status (status)
+      )
+    `);
 
-    // Tự động thêm cột balance nếu bảng users đã tồn tại từ trước
     try {
       await connection.query(`ALTER TABLE users ADD COLUMN balance BIGINT DEFAULT 0`);
-    } catch (_) {
-      /* Bỏ qua nếu cột đã tồn tại */
-    }
+    } catch (_) {}
   } finally {
     connection.release();
   }
@@ -144,14 +153,20 @@ function initSqlite() {
       balance INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS deposits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      amount INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      created_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
   `);
 
-  // Tự động thêm cột balance nếu file sqlite cũ chưa có cột này
   try {
     sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`);
-  } catch (_) {
-    /* Bỏ qua nếu cột đã có */
-  }
+  } catch (_) {}
 }
 
 async function initDB() {
@@ -169,9 +184,8 @@ async function initDB() {
         console.error('❌ MySQL bắt buộc (DB_MODE=mysql) nhưng không kết nối được:', err.message);
         throw err;
       }
-      const why = err.message || err.code || (err.errors && err.errors[0] && err.errors[0].message) || String(err);
       if (pool) {
-        try { await pool.end(); } catch (_) { /* ignore */ }
+        try { await pool.end(); } catch (_) { }
         pool = null;
       }
     }
@@ -453,7 +467,7 @@ async function keepAlive() {
   }
 }
 
-// ==================== CÁC HÀM XỬ LÝ TIỀN (BALANCE) ====================
+// ==================== CÁC HÀM XỬ LÝ VÍ & SỐ DƯ ====================
 
 async function getUserBalance(userId) {
   const rows = await queryAll('SELECT balance FROM users WHERE id = ?', [userId]);
@@ -469,6 +483,37 @@ async function setUserBalance(userId, amount) {
 async function addMoney(userId, amount) {
   const addVal = parseInt(amount, 10) || 0;
   return await queryRun('UPDATE users SET balance = balance + ? WHERE id = ?', [addVal, userId]);
+}
+
+async function deductBalance(userId, amount) {
+  const val = parseInt(amount, 10) || 0;
+  return await queryRun('UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?', [val, userId, val]);
+}
+
+// ==================== HỆ THỐNG NẠP TIỀN (DEPOSITS) ====================
+
+async function createDeposit(userId, amount, content) {
+  const createdAt = Date.now();
+  const result = await queryRun(
+    'INSERT INTO deposits (user_id, amount, content, status, created_at) VALUES (?, ?, ?, ?, ?)',
+    [userId, amount, content, 'pending', createdAt]
+  );
+  return { id: result.insertId, createdAt };
+}
+
+async function getPendingDeposits() {
+  const rows = await queryAll("SELECT id, user_id, amount, content, created_at FROM deposits WHERE status = 'pending'");
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    amount: r.amount,
+    content: r.content,
+    createdAt: r.created_at
+  }));
+}
+
+async function updateDepositStatus(depositId, status) {
+  await queryRun('UPDATE deposits SET status = ? WHERE id = ?', [status, depositId]);
 }
 
 module.exports = {
@@ -497,8 +542,13 @@ module.exports = {
   keepAlive,
   calculatePrice,
   getUnitPrice,
-  // Đã xuất thêm các hàm số dư:
+  // Xử lý tiền ví
   getUserBalance,
   setUserBalance,
-  addMoney
+  addMoney,
+  deductBalance,
+  // Xử lý nạp tiền
+  createDeposit,
+  getPendingDeposits,
+  updateDepositStatus
 };

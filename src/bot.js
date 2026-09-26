@@ -277,7 +277,6 @@ ${t.choose_category}`;
     });
   }
 
-  // Lấy các sản phẩm không nằm trong thư mục nào (category_id = 0)
   const uncategorizedProducts = await db.getProductsByCategory(0);
   if (uncategorizedProducts.length > 0) {
     uncategorizedProducts.forEach(p => {
@@ -452,20 +451,20 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
   });
 
-  // Admin Lệnh: /categories
+  // Admin: /categories
   bot.onText(/\/categories/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
     const categories = await db.getAllCategories();
     const keyboard = categories.map(c => [{ text: wideInlineLabel(`📁 ${c.name} (${c.product_count} SP)`), callback_data: `adm_cat_detail_${c.id}` }]);
     keyboard.push([{ text: wideInlineLabel('➕ Tạo thư mục mới'), callback_data: 'adm_add_cat' }]);
 
-    bot.sendMessage(msg.chat.id, `📁 <b>QUẢN TRỊ THƯ MỤC DANH MỤC</b>\nHiện có: <b>${categories.length}</b> thư mục. Bấm vào thư mục để xem/thêm SP hoặc xóa:`, {
+    bot.sendMessage(msg.chat.id, `📁 <b>QUẢN TRỊ THƯ MỤC DANH MỤC</b>\nHiện có: <b>${categories.length}</b> thư mục. Bấm vào thư mục để chọn SP từ /products đưa vào:`, {
       parse_mode: 'HTML',
       reply_markup: { inline_keyboard: keyboard }
     });
   });
 
-  // Admin Lệnh: /products
+  // Admin: /products
   bot.onText(/\/products/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
     const products = await db.getAllProducts();
@@ -938,7 +937,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
 
       // ==================== ADMIN CALLBACKS ====================
       if (isAdmin(userId)) {
-        // 1. Tạo thư mục mới
         if (data === 'adm_add_cat') {
           waitingEdit.set(userId, { field: 'new_category', messageId: query.message.message_id });
           return bot.editMessageText('📁 <b>TẠO THƯ MỤC MỚI</b>\n\nNhập cú pháp: <code>Tên thư mục|Mô tả</code>\nVí dụ: <code>Acc Free Fire|Danh sách nick FF vip</code>', {
@@ -949,25 +947,26 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           });
         }
 
-        // 2. Chi tiết 1 Thư mục trong /categories (Xem SP, thêm SP trực tiếp, xóa thư mục)
+        // CHI TIẾT 1 THƯ MỤC TRONG /categories
         if (data.startsWith('adm_cat_detail_')) {
           const catId = parseInt(data.split('_')[3]);
           const cat = await db.getCategory(catId);
           if (!cat) return bot.answerCallbackQuery(query.id, { text: 'Thư mục không tồn tại!' });
           const prods = await db.getProductsByCategory(catId);
 
-          let text = `📁 <b>THƯ MỤC: ${cat.name.toUpperCase()}</b>\n📝 Mô tả: <i>${cat.description || 'Chưa có'}</i>\n📊 Số sản phẩm: <b>${prods.length}</b> SP\n\n`;
+          let text = `📁 <b>THƯ MỤC: ${cat.name.toUpperCase()}</b>\n📝 Mô tả: <i>${cat.description || 'Chưa có'}</i>\n📊 Đang có: <b>${prods.length}</b> sản phẩm\n\n`;
           if (prods.length > 0) {
             text += `<i>Danh sách sản phẩm trong thư mục này:</i>\n`;
             prods.forEach((p, idx) => {
               text += `${idx + 1}. <b>${p.name}</b> (Kho: ${p.stock_count}) - ${formatPrice(p.price)}\n`;
             });
           } else {
-            text += `<i>Thư mục này chưa có sản phẩm nào!</i>`;
+            text += `<i>(Thư mục này hiện chưa có sản phẩm nào)</i>`;
           }
 
           const keyboard = [
-            [{ text: wideInlineLabel('➕ Thêm SP vào thư mục này'), callback_data: `adm_addprodto_${catId}` }],
+            // Nút quan trọng: Chọn sản phẩm từ /products đưa vào thư mục này
+            [{ text: wideInlineLabel('➕ Thêm sản phẩm từ /products'), callback_data: `adm_pick_from_prods_${catId}` }],
             [{ text: wideInlineLabel('🗑️ Xóa thư mục này'), callback_data: `adm_delcat_${catId}` }],
             [{ text: wideInlineLabel('◀️ Quay lại danh sách thư mục'), callback_data: 'adm_back_categories' }]
           ];
@@ -975,7 +974,86 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
         }
 
-        // 3. Xóa thư mục
+        // CHỌN SẢN PHẨM TỪ KHO ĐỂ ĐƯA VÀO HOẶC GỠ RA KHỎI THƯ MỤC NÀY
+        if (data.startsWith('adm_pick_from_prods_')) {
+          const catId = parseInt(data.split('_')[4]);
+          const cat = await db.getCategory(catId);
+          const allProds = await db.getAllProducts();
+
+          if (allProds.length === 0) {
+            return bot.answerCallbackQuery(query.id, { text: 'Shop chưa có sản phẩm nào! Vui lòng dùng /products tạo sản phẩm trước.', show_alert: true });
+          }
+
+          const keyboard = [];
+          allProds.forEach(p => {
+            const inThisCat = p.category_id === catId;
+            const statusIcon = inThisCat ? '✅ [ĐÃ TRONG MỤC]' : '➕ [CHƯA VÀO]';
+            keyboard.push([{
+              text: wideInlineLabel(`${statusIcon} #${p.id} ${p.name}`),
+              callback_data: `adm_toggle_prodcat_${catId}_${p.id}`
+            }]);
+          });
+
+          keyboard.push([{ text: wideInlineLabel('◀️ Xong / Quay lại thư mục'), callback_data: `adm_cat_detail_${catId}` }]);
+
+          const text = `📁 <b>THƯ MỤC: ${cat.name.toUpperCase()}</b>\n` +
+                       `<i>Bấm vào sản phẩm bên dưới để thêm vào thư mục (hoặc bấm để gỡ ra):</i>\n\n` +
+                       `• ✅ = Đang nằm trong thư mục này (bấm để gỡ)\n` +
+                       `• ➕ = Chưa vào thư mục này (bấm để đưa vào)`;
+
+          return bot.editMessageText(text, {
+            chat_id: chatId,
+            message_id: query.message.message_id,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: keyboard }
+          });
+        }
+
+        // TOGGLE THÊM / GỠ SẢN PHẨM VÀO THƯ MỤC
+        if (data.startsWith('adm_toggle_prodcat_')) {
+          const [, , , catIdStr, prodIdStr] = data.split('_');
+          const catId = parseInt(catIdStr);
+          const prodId = parseInt(prodIdStr);
+
+          const currentProd = await db.getProduct(prodId);
+          if (currentProd) {
+            const newCatId = currentProd.category_id === catId ? 0 : catId; // Nếu đã có thì gỡ ra 0, nếu chưa có thì gán catId
+            if (db.updateProductCategory) {
+              await db.updateProductCategory(prodId, newCatId);
+            }
+            bot.answerCallbackQuery(query.id, {
+              text: newCatId === 0 ? `Đã gỡ #${prodId} ra khỏi thư mục!` : `Đã thêm #${prodId} vào thư mục thành công!`
+            });
+          }
+
+          // Cập nhật lại danh sách nút bấm
+          const cat = await db.getCategory(catId);
+          const allProds = await db.getAllProducts();
+          const keyboard = [];
+          allProds.forEach(p => {
+            const inThisCat = p.category_id === catId;
+            const statusIcon = inThisCat ? '✅ [ĐÃ TRONG MỤC]' : '➕ [CHƯA VÀO]';
+            keyboard.push([{
+              text: wideInlineLabel(`${statusIcon} #${p.id} ${p.name}`),
+              callback_data: `adm_toggle_prodcat_${catId}_${p.id}`
+            }]);
+          });
+          keyboard.push([{ text: wideInlineLabel('◀️ Xong / Quay lại thư mục'), callback_data: `adm_cat_detail_${catId}` }]);
+
+          const text = `📁 <b>THƯ MỤC: ${cat.name.toUpperCase()}</b>\n` +
+                       `<i>Bấm vào sản phẩm bên dưới để thêm vào thư mục (hoặc bấm để gỡ ra):</i>\n\n` +
+                       `• ✅ = Đang nằm trong thư mục này (bấm để gỡ)\n` +
+                       `• ➕ = Chưa vào thư mục này (bấm để đưa vào)`;
+
+          return bot.editMessageText(text, {
+            chat_id: chatId,
+            message_id: query.message.message_id,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: keyboard }
+          });
+        }
+
+        // Xóa thư mục
         if (data.startsWith('adm_delcat_')) {
           const catId = parseInt(data.split('_')[2]);
           await db.deleteCategory(catId);
@@ -993,7 +1071,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           return bot.editMessageText('📁 <b>QUẢN TRỊ THƯ MỤC DANH MỤC:</b>', { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
         }
 
-        // 4. KHI BẤM "➕ Thêm sản phẩm mới" (TỪ /products HOẶC /categories) -> CHO CHỌN THƯ MỤC
+        // Khi bấm "➕ Thêm sản phẩm mới"
         if (data === 'adm_add_product') {
           const categories = await db.getAllCategories();
           const keyboard = [];
@@ -1014,7 +1092,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           });
         }
 
-        // Đã chọn xong thư mục -> Yêu cầu nhập thông tin sản phẩm
         if (data.startsWith('adm_addprodto_')) {
           const catId = parseInt(data.split('_')[2]);
           waitingEdit.set(userId, { field: 'new_product', categoryId: catId, messageId: query.message.message_id });
@@ -1026,7 +1103,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           });
         }
 
-        // 5. Đổi thư mục cho sản phẩm đang có
+        // Đổi thư mục cho sản phẩm
         if (data.startsWith('adm_change_cat_')) {
           const productId = parseInt(data.split('_')[3]);
           const categories = await db.getAllCategories();
@@ -1059,7 +1136,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           });
         }
 
-        // Xem chi tiết SP
+        // Chi tiết sản phẩm
         if (data.startsWith('adm_product_')) {
           const productId = parseInt(data.split('_')[2]);
           const product = await db.getProduct(productId);
@@ -1250,7 +1327,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
       return bot.sendMessage(msg.chat.id, `✅ Đã tạo thư mục: <b>${name}</b> thành công!\nGõ /categories để kiểm tra.`, { parse_mode: 'HTML' });
     }
 
-    // Thêm SP mới vào thư mục đã chọn -> Tự động báo HÀNG MỚI
+    // Thêm SP mới -> Tự động báo HÀNG MỚI
     if (editInfo.field === 'new_product') {
       const parts = msg.text.split('|').map(s => s.trim());
       const name = parts[0];
@@ -1382,7 +1459,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     }
   });
 
-  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với liên kết /categories và /products hoàn hảo!');
+  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với đầy đủ tính năng liên kết /categories!');
 }
 
 startBot().catch(console.error);

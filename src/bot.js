@@ -1,4 +1,5 @@
 
+// Lấy Top nạp tiền (mặc định lấy Top 10)
 async function getTopDeposits(limit = 10) {
   const rows = await queryAll(`
     SELECT u.id, u.first_name, u.username, COALESCE(SUM(d.amount), 0) AS total_deposited
@@ -1562,4 +1563,5 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
 }
 
 startBot().catch(console.error);
+
 

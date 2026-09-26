@@ -1,6 +1,6 @@
 const TelegramBot = require('node-telegram-bot-api');
 const os = require('os');
-const { createCanvas } = require('canvas');
+const { createCanvas, loadImage } = require('canvas');
 const config = require('./config');
 const db = require('./database');
 const sepay = require('./sepay');
@@ -62,7 +62,252 @@ const MESSAGES = {
   }
 };
 
-// ==================== VẼ ẢNH UPTIME VPS BẰNG CANVAS ====================
+// ==================== CANVAS 1: THẺ CĂN CƯỚC / THẺ VIP THÀNH VIÊN ====================
+async function generateProfileCard(user, balance, totalDeposit, totalSpent, avatarUrl = null) {
+  const width = 850;
+  const height = 480;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  // Nền Gradient Cyberpunk Dark Navy
+  const grad = ctx.createLinearGradient(0, 0, width, height);
+  grad.addColorStop(0, '#0f172a');
+  grad.addColorStop(0.5, '#1e1b4b');
+  grad.addColorStop(1, '#020617');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+
+  // Hoa văn viền neon công nghệ
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(15, 15, width - 30, height - 30);
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(25, 25, width - 50, height - 50);
+
+  // Header Thẻ
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 26px sans-serif';
+  ctx.fillText(`⚡ ${(config.SHOP_NAME || 'SYSTEM').toUpperCase()} MEMBERSHIP`, 45, 68);
+
+  // Xác định Hạng thẻ dựa theo tổng nạp
+  let rankName = 'MEMBER';
+  let rankColor = '#94a3b8';
+  if (totalDeposit >= 2000000) { rankName = 'DIAMOND VIP'; rankColor = '#38bdf8'; }
+  else if (totalDeposit >= 500000) { rankName = 'GOLD VIP'; rankColor = '#facc15'; }
+  else if (totalDeposit >= 100000) { rankName = 'SILVER VIP'; rankColor = '#e2e8f0'; }
+
+  ctx.fillStyle = rankColor;
+  ctx.font = 'bold 18px monospace';
+  ctx.fillText(`[ ${rankName} ]`, width - 210, 68);
+
+  // Phân cách Header
+  ctx.strokeStyle = '#334155';
+  ctx.beginPath();
+  ctx.moveTo(45, 90);
+  ctx.lineTo(width - 45, 90);
+  ctx.stroke();
+
+  // Khung Avatar tròn hoặc Icon Placeholder
+  const avatarX = 55;
+  const avatarY = 120;
+  const avatarSize = 130;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+
+  let avatarLoaded = false;
+  if (avatarUrl) {
+    try {
+      const img = await loadImage(avatarUrl);
+      ctx.drawImage(img, avatarX, avatarY, avatarSize, avatarSize);
+      avatarLoaded = true;
+    } catch (_) {}
+  }
+
+  if (!avatarLoaded) {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(avatarX, avatarY, avatarSize, avatarSize);
+    ctx.fillStyle = '#64748b';
+    ctx.font = 'bold 50px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText((user.first_name || 'U')[0].toUpperCase(), avatarX + avatarSize / 2, avatarY + avatarSize / 2 + 18);
+    ctx.textAlign = 'left';
+  }
+  ctx.restore();
+
+  // Viền Avatar
+  ctx.strokeStyle = rankColor;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2 + 2, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Thông tin User
+  const textX = 220;
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = 'bold 24px sans-serif';
+  ctx.fillText(getFullName(user), textX, 150);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '16px monospace';
+  ctx.fillText(`ID: ${user.id} | ${user.username ? '@' + user.username : 'No Username'}`, textX, 185);
+
+  // Khối thông số tài chính 3 ô
+  function drawStat(x, y, w, title, val, color) {
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.7)';
+    ctx.fillRect(x, y, w, 75);
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, 75);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '13px sans-serif';
+    ctx.fillText(title, x + 14, y + 26);
+
+    ctx.fillStyle = color;
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText(val, x + 14, y + 58);
+  }
+
+  drawStat(textX, 215, 185, '🏦 SỐ DƯ VÍ', formatPrice(balance), '#4ade80');
+  drawStat(textX + 200, 215, 185, '🏯 TỔNG NẠP', formatPrice(totalDeposit), '#38bdf8');
+  drawStat(textX + 400, 215, 185, '💸 ĐÃ TIÊU DÙNG', formatPrice(totalSpent), '#f43f5e');
+
+  // Vẽ Barcode giả lập chân thực dưới góc
+  const barY = 370;
+  ctx.fillStyle = '#ffffff';
+  let curX = 55;
+  const barPattern = [3, 1, 4, 2, 1, 3, 2, 4, 1, 2, 3, 1, 4, 2, 1, 3, 2, 1, 4, 3, 2, 1, 4, 2, 1, 3];
+  for (let i = 0; i < barPattern.length; i++) {
+    ctx.fillRect(curX, barY, barPattern[i] * 2, 45);
+    curX += barPattern[i] * 2 + (i % 2 === 0 ? 3 : 5);
+  }
+
+  ctx.fillStyle = '#64748b';
+  ctx.font = '13px monospace';
+  ctx.fillText(`MEMBER ID: #${user.id} • AUTHENTICATED BY BOT`, 55, 435);
+  ctx.fillText(`Issued: ${new Date().toLocaleDateString('vi-VN')}`, width - 210, 435);
+
+  return canvas.toBuffer('image/png');
+}
+
+// ==================== CANVAS 2: HÓA ĐƠN MUA HÀNG ĐIỆN TỬ (E-RECEIPT) ====================
+function generateReceiptImage(orderId, user, product, qty, total, payMethod = 'WALLET') {
+  const width = 650;
+  const height = 750;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  // Nền giấy hóa đơn in hiện đại Dark Gray
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, width, height);
+
+  // Đường viền đứt nét nét cổ điển hóa đơn
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(20, 20, width - 40, height - 40);
+
+  // Header Invoice
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 30px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('HÓA ĐƠN THANH TOÁN', width / 2, 75);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '14px sans-serif';
+  ctx.fillText(`${config.SHOP_NAME || 'STORE TỰ ĐỘNG'} • OFFICIAL RECEIPT`, width / 2, 102);
+
+  // Line gạch đứt
+  ctx.setLineDash([6, 6]);
+  ctx.strokeStyle = '#475569';
+  ctx.beginPath();
+  ctx.moveTo(40, 125);
+  ctx.lineTo(width - 40, 125);
+  ctx.stroke();
+  ctx.setLineDash([]); // Reset dash
+
+  // Nội dung đơn hàng
+  ctx.textAlign = 'left';
+  function drawReceiptRow(y, label, val, isBold = false) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '15px sans-serif';
+    ctx.fillText(label, 50, y);
+
+    ctx.fillStyle = isBold ? '#38bdf8' : '#f8fafc';
+    ctx.font = isBold ? 'bold 16px monospace' : '15px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(val, width - 50, y);
+    ctx.textAlign = 'left';
+  }
+
+  drawReceiptRow(165, 'Mã đơn hàng:', `#${orderId}`, true);
+  drawReceiptRow(205, 'Khách hàng:', getFullName(user));
+  drawReceiptRow(245, 'Telegram ID:', `${user.id}`);
+  drawReceiptRow(285, 'Thời gian thanh toán:', new Date().toLocaleString('vi-VN'));
+  drawReceiptRow(325, 'Phương thức:', payMethod === 'WALLET' ? 'Số dư ví' : 'Chuyển khoản VietQR');
+
+  // Hộp chi tiết sản phẩm
+  ctx.fillStyle = 'rgba(30, 41, 59, 0.6)';
+  ctx.fillRect(40, 360, width - 80, 130);
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(40, 360, width - 80, 130);
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = 'bold 18px sans-serif';
+  ctx.fillText(product.name, 60, 400);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '15px sans-serif';
+  ctx.fillText(`Số lượng: x${qty} tài khoản`, 60, 435);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#4ade80';
+  ctx.font = 'bold 22px monospace';
+  ctx.fillText(formatPrice(total), width - 60, 435);
+  ctx.textAlign = 'left';
+
+  // Tổng thanh toán
+  drawReceiptRow(535, 'TỔNG TIỀN ĐÃ TRẢ:', formatPrice(total), true);
+
+  // Line kết thúc
+  ctx.setLineDash([6, 6]);
+  ctx.strokeStyle = '#475569';
+  ctx.beginPath();
+  ctx.moveTo(40, 570);
+  ctx.lineTo(width - 40, 570);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Dấu mộc mờ đỏ/xanh lá "PAID & VERIFIED"
+  ctx.save();
+  ctx.translate(width / 2, 630);
+  ctx.rotate(-8 * Math.PI / 180);
+  ctx.strokeStyle = '#10b981';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(-130, -30, 260, 60);
+
+  ctx.fillStyle = '#10b981';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('✓ ĐÃ THANH TOÁN', 0, 8);
+  ctx.restore();
+
+  // Footer bảo hành
+  ctx.fillStyle = '#64748b';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Lưu ý: Hóa đơn điện tử có giá trị xác nhận và bảo hành tài khoản.', width / 2, 705);
+
+  return canvas.toBuffer('image/png');
+}
+
+// ==================== CANVAS 3: UPTIME VPS MONITOR ====================
 function formatDuration(seconds) {
   const d = Math.floor(seconds / (3600 * 24));
   const h = Math.floor((seconds % (3600 * 24)) / 3600);
@@ -77,19 +322,16 @@ function generateUptimeImage() {
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
 
-  // Background Gradient Dark Theme
   const bgGrad = ctx.createLinearGradient(0, 0, width, height);
   bgGrad.addColorStop(0, '#0b0f19');
   bgGrad.addColorStop(1, '#111827');
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, width, height);
 
-  // Khung viền ngoài
   ctx.strokeStyle = '#1e293b';
   ctx.lineWidth = 4;
   ctx.strokeRect(10, 10, width - 20, height - 20);
 
-  // Header Title
   ctx.fillStyle = '#38bdf8';
   ctx.font = 'bold 28px sans-serif';
   ctx.fillText('⚡ VPS SYSTEM MONITOR & UPTIME', 40, 60);
@@ -98,7 +340,6 @@ function generateUptimeImage() {
   ctx.font = '16px sans-serif';
   ctx.fillText(`Server OS: ${os.type()} ${os.arch()} | Platform: ${os.platform()}`, 40, 90);
 
-  // Line ngăn cách
   ctx.strokeStyle = '#334155';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -106,17 +347,14 @@ function generateUptimeImage() {
   ctx.lineTo(width - 40, 110);
   ctx.stroke();
 
-  // Tính toán RAM
   const totalMem = (os.totalmem() / 1024 / 1024 / 1024).toFixed(2);
   const freeMem = (os.freemem() / 1024 / 1024 / 1024).toFixed(2);
   const usedMem = (totalMem - freeMem).toFixed(2);
   const memPct = Math.round((usedMem / totalMem) * 100);
 
-  // Uptime
   const vpsUptime = formatDuration(os.uptime());
   const botUptime = formatDuration((Date.now() - BOT_START_TIME) / 1000);
 
-  // Vẽ các khối thông số
   function drawMetricBox(x, y, w, h, title, val, color) {
     ctx.fillStyle = 'rgba(30, 41, 59, 0.6)';
     ctx.fillRect(x, y, w, h);
@@ -138,7 +376,6 @@ function generateUptimeImage() {
   drawMetricBox(40, 245, 340, 90, '📊 CPU CORES & LOAD', `${os.cpus().length} Cores | Node ${process.version}`, '#facc15');
   drawMetricBox(420, 245, 340, 90, '💾 RAM USAGE', `${usedMem}GB / ${totalMem}GB (${memPct}%)`, '#f43f5e');
 
-  // Vẽ thanh đo RAM Bar
   const barX = 40;
   const barY = 370;
   const barW = width - 80;
@@ -155,10 +392,9 @@ function generateUptimeImage() {
   ctx.fillStyle = ramGrad;
   ctx.fillRect(barX, barY, fillW, barH);
 
-  // Footer status
   ctx.fillStyle = '#64748b';
   ctx.font = '13px monospace';
-  ctx.fillText(`• RAM: ${memPct}% Used • Real-time generated by Canvas • Status: Operational`, 40, 420);
+  ctx.fillText(`• RAM: ${memPct}% Used • Real-time Canvas Generator • Status: Operational`, 40, 420);
 
   return canvas.toBuffer('image/png');
 }
@@ -289,7 +525,8 @@ function notifyAllAdmins(bot, message) {
   });
 }
 
-async function deliverOrder(bot, orderId, chatId, userId, userFrom, product, accounts) {
+// GIAO HÀNG KÈM ẢNH HÓA ĐƠN CANVAS VÀ FILE TXT
+async function deliverOrder(bot, orderId, chatId, userId, userFrom, product, accounts, payMethod = 'WALLET') {
   const accListRaw = accounts.join('\n');
   await db.updateOrder(orderId, null, 'completed', accListRaw);
 
@@ -314,7 +551,20 @@ ${accounts.map((acc, i) => `[${i + 1}] ${acc}`).join('\n')}
 
   const txtBuffer = Buffer.from(txtContent, 'utf-8');
   const filename = `Order_${orderId}.txt`;
+  const totalPrice = product.price * accounts.length;
 
+  // 1. Vẽ và gửi hóa đơn điện tử Canvas
+  try {
+    const receiptBuffer = generateReceiptImage(orderId, userFrom, product, accounts.length, totalPrice, payMethod);
+    await bot.sendPhoto(chatId, receiptBuffer, {
+      caption: `🧾 <b>HÓA ĐƠN ĐIỆN TỬ ĐƠN HÀNG #${orderId}</b>\n<i>Đã ghi nhận giao dịch thành công trên hệ thống.</i>`,
+      parse_mode: 'HTML'
+    });
+  } catch (e) {
+    console.log('Lỗi render hóa đơn Canvas:', e.message);
+  }
+
+  // 2. Gửi tệp TXT dữ liệu tài khoản
   await bot.sendDocument(chatId, txtBuffer, {
     caption: 
 `╔══════════════════════════════╗
@@ -329,6 +579,7 @@ ${accounts.map((acc, i) => `[${i + 1}] ${acc}`).join('\n')}
     parse_mode: 'HTML'
   }, { filename, contentType: 'text/plain' });
 
+  // 3. Thông báo cho Admin
   let adminAccDetails = '';
   accounts.forEach((acc, i) => {
     const p = parseAccount(acc);
@@ -343,7 +594,7 @@ ${accounts.map((acc, i) => `[${i + 1}] ${acc}`).join('\n')}
  ├ 👤 <b>Khách hàng:</b> ${getFullName(userFrom)} (<code>${userId}</code>)
  ├ 🎁 <b>Sản phẩm:</b> ${product.name}
  ├ 🔢 <b>Số lượng:</b> ${accounts.length}
- ╰ 💰 <b>Tổng thu:</b> <code>${formatPrice(product.price * accounts.length)}</code>
+ ╰ 💰 <b>Tổng thu:</b> <code>${formatPrice(totalPrice)}</code>
 ─────────────────────────
 📂 <b>DỮ LIỆU ĐÃ GIAO:</b>${adminAccDetails}`;
 
@@ -362,7 +613,6 @@ function getLanguageKeyboard() {
   ];
 }
 
-// CĂN CHỈNH MENU CHUẨN ĐỐI XỨNG
 async function buildMainMenu(userId) {
   let lang = await db.getUserLang(userId) || 'vi';
   const t = MESSAGES[lang] || MESSAGES.vi;
@@ -387,7 +637,6 @@ ${t.choose_category}`;
   const categories = await db.getAllCategories();
   const keyboard = [];
 
-  // Nút danh mục cân đối 2 đầu
   if (categories.length > 0) {
     categories.forEach(c => {
       keyboard.push([{
@@ -402,19 +651,16 @@ ${t.choose_category}`;
     }]);
   }
 
-  // Cột 1: Nạp tiền - Top nạp
   keyboard.push([
     { text: t.btn_deposit, callback_data: 'deposit_menu' },
     { text: t.btn_top, callback_data: 'view_top_deposits' }
   ]);
 
-  // Cột 2: Tài khoản - Lịch sử
   keyboard.push([
     { text: t.btn_profile, callback_data: 'main_profile' },
     { text: t.btn_history, callback_data: 'main_history' }
   ]);
 
-  // Cột 3: Ngôn ngữ - CSKH (chia 50/50 cân xứng)
   const bottomRow = [{ text: t.btn_change_lang, callback_data: 'change_language' }];
   const adminUser = (config.ADMIN_USER_NAME || '').trim().replace('@', '');
   if (adminUser) {
@@ -514,7 +760,7 @@ async function startBot() {
           }
         }
         if (accounts.length > 0) {
-          await deliverOrder(bot, orderId, order.chatId, order.userId, { first_name: 'Khách hàng', id: order.userId }, product, accounts);
+          await deliverOrder(bot, orderId, order.chatId, order.userId, { first_name: 'Khách hàng', id: order.userId }, product, accounts, 'BANK_QR');
         }
       }
       processingOrders.delete(orderId);
@@ -561,10 +807,8 @@ async function startBot() {
     }
   }, 25000);
 
-  // ==================== LỆNH /uptime VẼ CANVAS (CHỈ ADMIN) ====================
   bot.onText(/\/uptime/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
-
     try {
       const imgBuffer = generateUptimeImage();
       await bot.sendPhoto(msg.chat.id, imgBuffer, {
@@ -573,7 +817,7 @@ async function startBot() {
       });
     } catch (err) {
       console.log('Lỗi vẽ canvas uptime:', err.message);
-      bot.sendMessage(msg.chat.id, '❌ Không thể tạo ảnh Canvas! Hãy đảm bảo đã chạy `npm install canvas`.');
+      bot.sendMessage(msg.chat.id, '❌ Không thể tạo ảnh Canvas! Hãy chạy `npm install canvas`.');
     }
   });
 
@@ -793,6 +1037,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
     notifyAllAdmins(bot, adminMsg);
   }
 
+  // ==================== CALLBACK QUERY ====================
   bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const userId = query.from.id;
@@ -1010,7 +1255,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
 
         const order = await db.createOrder(userId, parseInt(productId), chatId, 'WALLET_PAY', qty, totalPrice);
         await bot.deleteMessage(chatId, messageId);
-        await deliverOrder(bot, order.lastInsertRowid, chatId, userId, query.from, product, accounts);
+        await deliverOrder(bot, order.lastInsertRowid, chatId, userId, query.from, product, accounts, 'WALLET');
         return;
       }
 
@@ -1091,7 +1336,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
             }
           }
           if (accounts.length > 0) {
-            await deliverOrder(bot, orderIdNum, chatId, userId, query.from, product, accounts);
+            await deliverOrder(bot, orderIdNum, chatId, userId, query.from, product, accounts, 'BANK_QR');
           }
         } else {
           bot.answerCallbackQuery(query.id, { text: 'Chưa thấy giao dịch chuyển khoản. Vui lòng thử lại sau ít giây!', show_alert: true });
@@ -1111,37 +1356,42 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         return await sendOrEditText(bot, chatId, messageId, text, keyboard);
       }
 
+      // ==================== TẠO THẺ CĂN CƯỚC VIP BẰNG CANVAS TẠI PROFILE ====================
       if (data === 'main_profile') {
         const orders = await db.getOrdersByUser(userId);
         const completed = orders.filter(o => o.status === 'completed');
         const totalSpent = completed.reduce((sum, o) => sum + (o.total_price || 0), 0);
         const balance = await db.getUserBalance(userId);
-        const { totalDeposit, monthDeposit } = await db.getUserDepositStats(userId);
+        const { totalDeposit } = await db.getUserDepositStats(userId);
 
-        const text = 
-`╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
-  👤 <b>THÔNG TIN HỒ SƠ TÀI KHOẢN</b>
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯
- ├ 🆔 <b>ID:</b> <code>${userId}</code>
- ├ 🏷️ <b>Họ tên:</b> <b>${getFullName(query.from)}</b>
- ╰ 📧 <b>Username:</b> ${query.from.username ? '@' + query.from.username : '<i>Không có</i>'}
-─────────────────────────
-💳 <b>TÀI CHÍNH:</b>
- ├ 🏦 <b>Số dư ví:</b> <code>${formatPrice(balance)}</code>
- ├ 🏯 <b>Tổng nạp:</b> <code>${formatPrice(totalDeposit)}</code>
- ╰ 💰 <b>Nạp tháng:</b> <code>${formatPrice(monthDeposit)}</code>
-─────────────────────────
-📊 <b>GIAO DỊCH:</b>
- ├ 🛍️ <b>Đã mua:</b> <code>${completed.length} đơn</code>
- ╰ 💸 <b>Đã tiêu:</b> <code>${formatPrice(totalSpent)}</code>`;
+        // Lấy avatar Telegram của user
+        let avatarUrl = null;
+        try {
+          const userProfiles = await bot.getUserProfilePhotos(userId, { limit: 1 });
+          if (userProfiles.total_count > 0) {
+            const fileId = userProfiles.photos[0][0].file_id;
+            avatarUrl = await bot.getFileLink(fileId);
+          }
+        } catch (_) {}
 
-        const keyboard = [
-          [{ text: '💳 Nạp tiền vào ví', callback_data: 'deposit_menu' }],
-          [{ text: '📜 Lịch sử mua hàng', callback_data: 'main_history' }],
-          [{ text: '◀️ Về Trang Chủ', callback_data: 'back_main' }]
-        ];
+        try {
+          const cardBuffer = await generateProfileCard(query.from, balance, totalDeposit, totalSpent, avatarUrl);
+          await bot.deleteMessage(chatId, messageId);
 
-        return await sendOrEditText(bot, chatId, messageId, text, keyboard);
+          const keyboard = [
+            [{ text: '💳 Nạp tiền vào ví', callback_data: 'deposit_menu' }],
+            [{ text: '📜 Lịch sử mua hàng', callback_data: 'main_history' }],
+            [{ text: '◀️ Về Trang Chủ', callback_data: 'back_main' }]
+          ];
+
+          return await bot.sendPhoto(chatId, cardBuffer, {
+            caption: `👤 <b>THẺ ĐỊNH DANH THÀNH VIÊN</b>\n<i>Hạng thẻ tự động thăng cấp theo tổng tiền nạp của bạn.</i>`,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: keyboard }
+          });
+        } catch (e) {
+          console.log('Lỗi render Thẻ Căn Cước Canvas:', e.message);
+        }
       }
 
       if (data === 'deposit_menu') {
@@ -1720,7 +1970,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
     }
   });
 
-  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với menu cân đối và lệnh /uptime Canvas!');
+  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với trọn bộ Canvas (Căn cước VIP, Hóa đơn điện tử, Uptime)!');
 }
 
 startBot().catch(console.error);

@@ -170,6 +170,14 @@ function getQRUrl(amount, content) {
   return `https://img.vietqr.io/image/${config.BANK_BIN}-${config.BANK_ACCOUNT}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(content)}`;
 }
 
+// Hàm gửi tin nhắn tới toàn bộ Admin
+function notifyAllAdmins(bot, message) {
+  config.ADMIN_IDS.forEach(id => {
+    bot.sendMessage(id, message, { parse_mode: 'HTML' }).catch(() => {});
+  });
+}
+
+// Gửi thông báo đến toàn bộ người dùng
 async function broadcastToAllUsers(bot, textContent) {
   const users = await db.getAllUsers();
   for (const u of users) {
@@ -268,7 +276,7 @@ ${t.choose_category}`;
   const categories = await db.getAllCategories();
   const keyboard = [];
 
-  // CHỈ HIỆN DUY NHẤT CÁC THƯ MỤC Ở ĐÂY (KHÔNG HIỆN SẢN PHẨM RA NGOÀI TRANG CHỦ)
+  // CHỈ HIỆN DUY NHẤT THƯ MỤC
   if (categories.length > 0) {
     categories.forEach(c => {
       keyboard.push([{
@@ -361,6 +369,7 @@ async function startBot() {
     const now = Date.now();
     const transactions = await sepay.getTransactions();
 
+    // 1. Quét thanh toán mua hàng bằng QR Ngân hàng
     for (const [orderId, order] of pendingOrders) {
       if (processingOrders.has(orderId)) continue;
       if (now - order.createdAt > ORDER_TIMEOUT_MS) {
@@ -395,6 +404,7 @@ async function startBot() {
       processingOrders.delete(orderId);
     }
 
+    // 2. Quét nạp tiền ví qua SePay
     for (const [depositId, dep] of pendingDeposits) {
       if (now - dep.createdAt > ORDER_TIMEOUT_MS) {
         pendingDeposits.delete(depositId);
@@ -414,12 +424,23 @@ async function startBot() {
         await db.addMoney(dep.userId, dep.amount);
         const newBal = await db.getUserBalance(dep.userId);
 
+        // Báo cho khách
         bot.sendMessage(dep.userId, 
 `╭━━━━━━━━━━━━━━━━━━━━━━━━╮
   🎉 <b>NẠP TIỀN THÀNH CÔNG!</b>
 ╰━━━━━━━━━━━━━━━━━━━━━━━━╯
  ├ ➕ <b>Số tiền nạp:</b>  <code>+${formatPrice(dep.amount)}</code>
  ╰ 💳 <b>Số dư ví mới:</b> <code>${formatPrice(newBal)}</code>`, { parse_mode: 'HTML' });
+
+        // THÔNG BÁO VỀ ADMIN KHI NẠP THÀNH CÔNG
+        const adminDepositNotice = 
+`💰 <b>THÔNG BÁO NẠP TIỀN THÀNH CÔNG</b>
+──────────────────────────
+ ├ 👤 <b>User ID:</b> <code>${dep.userId}</code>
+ ├ 💵 <b>Số tiền nạp:</b> <code>+${formatPrice(dep.amount)}</code>
+ ├ 📝 <b>Mã nạp:</b> <code>${dep.content}</code>
+ ╰ 💳 <b>Số dư sau nạp:</b> <code>${formatPrice(newBal)}</code>`;
+        notifyAllAdmins(bot, adminDepositNotice);
       }
     }
   }, 25000);
@@ -449,7 +470,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
   });
 
-  // Admin: /categories
+  // Admin Commands
   bot.onText(/\/categories/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
     const categories = await db.getAllCategories();
@@ -462,7 +483,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     });
   });
 
-  // Admin: /products
   bot.onText(/\/products/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
     const products = await db.getAllProducts();
@@ -485,7 +505,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
  ├ ✅ <b>Đơn thành công:</b> <code>${stats.total_orders} đơn</code>
  ├ 📦 <b>Mặt hàng:</b> <code>${products.length} loại</code>
  ╰ 🎯 <b>Acc tồn kho:</b> <code>${totalStock} acc</code>`;
-    bot.sendMessage(msg.chat.id, text);
+    bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
   });
 
   bot.onText(/\/orders/, async (msg) => {
@@ -552,7 +572,8 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     });
   });
 
-  async function createDepositQR(chatId, userTgId, amount, oldMessageId) {
+  async function createDepositQR(chatId, userFrom, amount, oldMessageId) {
+    const userTgId = userFrom.id;
     const content = generateCode('NAP');
     const deposit = await db.createDeposit(userTgId, amount, content);
     pendingDeposits.set(deposit.id, { userId: userTgId, amount, content, createdAt: deposit.createdAt });
@@ -578,6 +599,15 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
       parse_mode: 'HTML',
       reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('◀️ Quay lại Hồ sơ'), callback_data: 'main_profile' }]] }
     });
+
+    // THÔNG BÁO VỀ ADMIN KHI KHÁCH TẠO LỆNH NẠP TIỀN
+    const adminMsg = 
+`⚡ <b>CÓ KHÁCH TẠO LỆNH NẠP TIỀN</b>
+──────────────────────────
+ ├ 👤 <b>Khách hàng:</b> ${getFullName(userFrom)} (<code>${userTgId}</code>)
+ ├ 💵 <b>Số tiền:</b> <code>${formatPrice(amount)}</code>
+ ╰ 📝 <b>Nội dung:</b> <code>${content}</code>`;
+    notifyAllAdmins(bot, adminMsg);
   }
 
   // Xử lý nút bấm Callback
@@ -616,7 +646,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
         });
       }
 
-      // Khách bấm xem thư mục
+      // Xem thư mục
       if (data.startsWith('view_category_')) {
         const catId = parseInt(data.split('_')[2]);
         const cat = await db.getCategory(catId);
@@ -638,7 +668,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
         return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
       }
 
-      // Khách xem chi tiết sản phẩm
+      // Chi tiết sản phẩm
       if (data.startsWith('product_')) {
         const product = await db.getProduct(parseInt(data.split('_')[1]));
         if (!product) return bot.answerCallbackQuery(query.id, { text: 'Sản phẩm không tồn tại!' });
@@ -797,6 +827,17 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
             ]
           }
         });
+
+        // THÔNG BÁO VỀ ADMIN KHI KHÁCH BẤM THANH TOÁN QR NGÂN HÀNG
+        const adminOrderAlert = 
+`⚡ <b>CÓ KHÁCH TẠO ĐƠN CHỜ QUÉT QR</b>
+──────────────────────────
+ ├ 📦 <b>Mã đơn:</b> <code>#${orderId}</code>
+ ├ 👤 <b>Khách hàng:</b> ${getFullName(query.from)} (<code>${userId}</code>)
+ ├ 🎁 <b>Sản phẩm:</b> ${product.name} (x${qty})
+ ├ 💰 <b>Tổng tiền:</b> <code>${formatPrice(totalPrice)}</code>
+ ╰ 📝 <b>Nội dung CK:</b> <code>${content}</code>`;
+        notifyAllAdmins(bot, adminOrderAlert);
         return;
       }
 
@@ -896,7 +937,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
 
       if (data.startsWith('dep_amt_')) {
         const amount = parseInt(data.split('_')[2], 10);
-        await createDepositQR(chatId, userId, amount, query.message.message_id);
+        await createDepositQR(chatId, query.from, amount, query.message.message_id);
         return;
       }
 
@@ -949,7 +990,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           });
         }
 
-        // CHI TIẾT 1 THƯ MỤC TRONG /categories
         if (data.startsWith('adm_cat_detail_')) {
           const catId = parseInt(data.split('_')[3]);
           const cat = await db.getCategory(catId);
@@ -975,7 +1015,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
         }
 
-        // CHỌN SẢN PHẨM TỪ KHO ĐỂ ĐƯA VÀO HOẶC GỠ RA KHỎI THƯ MỤC NÀY
         if (data.startsWith('adm_pick_from_prods_')) {
           const catId = parseInt(data.split('_')[4]);
           const cat = await db.getCategory(catId);
@@ -1010,7 +1049,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           });
         }
 
-        // TOGGLE THÊM / GỠ SẢN PHẨM VÀO THƯ MỤC
         if (data.startsWith('adm_toggle_prodcat_')) {
           const [, , , catIdStr, prodIdStr] = data.split('_');
           const catId = parseInt(catIdStr);
@@ -1053,7 +1091,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           });
         }
 
-        // Xóa thư mục
         if (data.startsWith('adm_delcat_')) {
           const catId = parseInt(data.split('_')[2]);
           await db.deleteCategory(catId);
@@ -1071,7 +1108,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           return bot.editMessageText('📁 <b>QUẢN TRỊ THƯ MỤC DANH MỤC:</b>', { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
         }
 
-        // Khi bấm "➕ Thêm sản phẩm mới"
         if (data === 'adm_add_product') {
           const categories = await db.getAllCategories();
           const keyboard = [];
@@ -1103,7 +1139,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           });
         }
 
-        // Đổi thư mục cho sản phẩm
         if (data.startsWith('adm_change_cat_')) {
           const productId = parseInt(data.split('_')[3]);
           const categories = await db.getAllCategories();
@@ -1136,7 +1171,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           });
         }
 
-        // Chi tiết sản phẩm
         if (data.startsWith('adm_product_')) {
           const productId = parseInt(data.split('_')[2]);
           const product = await db.getProduct(productId);
@@ -1219,7 +1253,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           if (available.length > 0) {
             text += 'Tài khoản còn (bấm để xóa):\n';
             available.slice(0, 10).forEach((s, i) => {
-              text += (i + 1) + '. ' + s.account_data + '\n';
+              text += `${i + 1}. ${s.account_data}\n`;
               keyboard.push([{ text: wideInlineLabel('🗑️ Xóa: ' + s.account_data.substring(0, 25) + '...'), callback_data: 'adm_delstock_' + productId + '_' + s.id }]);
             });
             if (available.length > 10) text += '... và ' + (available.length - 10) + ' tài khoản khác\n';
@@ -1455,7 +1489,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
       if (isNaN(amount) || amount < 10000) {
         return bot.sendMessage(msg.chat.id, '⚠️ Số tiền nạp tối thiểu là 10.000đ.');
       }
-      await createDepositQR(msg.chat.id, msg.from.id, amount, null);
+      await createDepositQR(msg.chat.id, msg.from, amount, null);
     }
   });
 

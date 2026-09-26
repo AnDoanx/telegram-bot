@@ -1,4 +1,3 @@
-
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
@@ -114,6 +113,7 @@ async function initMysql() {
     `);
 
     try { await connection.query(`ALTER TABLE products ADD COLUMN category_id INT DEFAULT 0`); } catch (_) {}
+    try { await connection.query(`ALTER TABLE products ADD COLUMN price_tiers TEXT`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN first_name VARCHAR(255)`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN username VARCHAR(255)`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN balance BIGINT DEFAULT 0`); } catch (_) {}
@@ -135,7 +135,6 @@ function initSqlite() {
   sqliteDb = new Database(config.SQLITE_PATH);
   sqliteDb.pragma('journal_mode = WAL');
 
-  // Khởi tạo các bảng nếu chưa có
   sqliteDb.exec(`
     CREATE TABLE IF NOT EXISTS categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -192,26 +191,20 @@ function initSqlite() {
     CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
   `);
 
-  // Kiểm tra chi tiết và thêm các cột còn thiếu trong DB cũ
-  try {
-    const userColumns = sqliteDb.prepare("PRAGMA table_info(users)").all().map(c => c.name);
-    if (!userColumns.includes('first_name')) sqliteDb.exec(`ALTER TABLE users ADD COLUMN first_name TEXT;`);
-    if (!userColumns.includes('username')) sqliteDb.exec(`ALTER TABLE users ADD COLUMN username TEXT;`);
-    if (!userColumns.includes('balance')) sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`);
-    if (!userColumns.includes('lang')) sqliteDb.exec(`ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'vi';`);
+  // Bổ sung các cột thiếu cho products, users, orders
+  try { sqliteDb.exec(`ALTER TABLE products ADD COLUMN price_tiers TEXT;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE products ADD COLUMN category_id INTEGER DEFAULT 0;`); } catch (_) {}
 
-    const orderColumns = sqliteDb.prepare("PRAGMA table_info(orders)").all().map(c => c.name);
-    if (!orderColumns.includes('chat_id')) sqliteDb.exec(`ALTER TABLE orders ADD COLUMN chat_id INTEGER;`);
-    if (!orderColumns.includes('content')) sqliteDb.exec(`ALTER TABLE orders ADD COLUMN content TEXT;`);
-    if (!orderColumns.includes('quantity')) sqliteDb.exec(`ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1;`);
-    if (!orderColumns.includes('total_price')) sqliteDb.exec(`ALTER TABLE orders ADD COLUMN total_price INTEGER DEFAULT 0;`);
-    if (!orderColumns.includes('delivered_data')) sqliteDb.exec(`ALTER TABLE orders ADD COLUMN delivered_data TEXT;`);
+  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN first_name TEXT;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN username TEXT;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'vi';`); } catch (_) {}
 
-    const prodColumns = sqliteDb.prepare("PRAGMA table_info(products)").all().map(c => c.name);
-    if (!prodColumns.includes('category_id')) sqliteDb.exec(`ALTER TABLE products ADD COLUMN category_id INTEGER DEFAULT 0;`);
-  } catch (err) {
-    console.log("Migration check warning:", err.message);
-  }
+  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN chat_id INTEGER;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN content TEXT;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN total_price INTEGER DEFAULT 0;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN delivered_data TEXT;`); } catch (_) {}
 }
 
 async function initDB() {
@@ -284,8 +277,12 @@ async function getAllCategories() {
 }
 
 async function getCategory(id) {
-  const rows = await queryAll('SELECT * FROM categories WHERE id = ?', [id]);
-  return rows[0] || null;
+  try {
+    const rows = await queryAll('SELECT * FROM categories WHERE id = ?', [id]);
+    return rows[0] || null;
+  } catch (_) {
+    return null;
+  }
 }
 
 async function addCategory(name, description = '') {
@@ -300,41 +297,70 @@ async function deleteCategory(id) {
 
 // ========== PRODUCTS ==========
 async function getAllProducts() {
-  const rows = await queryAll(
-    `SELECT p.id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB} FROM products p`
-  );
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    price: row.price,
-    description: row.description,
-    price_tiers: parsePriceTiersJson(row.price_tiers),
-    stock_count: parseInt(row.stock_count, 10) || 0
-  }));
+  try {
+    const rows = await queryAll(
+      `SELECT p.*, ${SQL_PRODUCTS_STOCK_SUB} FROM products p`
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      category_id: row.category_id || 0,
+      name: row.name,
+      price: row.price,
+      description: row.description,
+      price_tiers: parsePriceTiersJson(row.price_tiers),
+      stock_count: parseInt(row.stock_count, 10) || 0
+    }));
+  } catch (e) {
+    return [];
+  }
+}
+
+async function getProductsByCategory(categoryId) {
+  try {
+    const rows = await queryAll(
+      `SELECT p.*, ${SQL_PRODUCTS_STOCK_SUB} FROM products p WHERE p.category_id = ?`,
+      [categoryId]
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      category_id: row.category_id || 0,
+      name: row.name,
+      price: row.price,
+      description: row.description,
+      price_tiers: parsePriceTiersJson(row.price_tiers),
+      stock_count: parseInt(row.stock_count, 10) || 0
+    }));
+  } catch (e) {
+    return [];
+  }
 }
 
 async function getProduct(id) {
-  const rows = await queryAll(
-    `SELECT p.id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB}
-     FROM products p WHERE p.id = ?`,
-    [id]
-  );
-  if (!rows.length) return null;
-  const row = rows[0];
-  return {
-    id: row.id,
-    name: row.name,
-    price: row.price,
-    description: row.description,
-    price_tiers: parsePriceTiersJson(row.price_tiers),
-    stock_count: parseInt(row.stock_count, 10) || 0
-  };
+  try {
+    const rows = await queryAll(
+      `SELECT p.*, ${SQL_PRODUCTS_STOCK_SUB} FROM products p WHERE p.id = ?`,
+      [id]
+    );
+    if (!rows.length) return null;
+    const row = rows[0];
+    return {
+      id: row.id,
+      category_id: row.category_id || 0,
+      name: row.name,
+      price: row.price,
+      description: row.description,
+      price_tiers: parsePriceTiersJson(row.price_tiers),
+      stock_count: parseInt(row.stock_count, 10) || 0
+    };
+  } catch (e) {
+    return null;
+  }
 }
 
 async function addProduct(name, price, description = '', categoryId = 0) {
   const result = await queryRun(
-    'INSERT INTO products (name, price, description) VALUES (?, ?, ?)',
-    [name, price, description]
+    'INSERT INTO products (name, price, description, category_id) VALUES (?, ?, ?, ?)',
+    [name, price, description, categoryId]
   );
   return { lastInsertRowid: result.insertId };
 }
@@ -357,13 +383,16 @@ async function clearStock(productId) {
 }
 
 async function getAvailableStock(productId) {
-  const rows = await queryAll(
-    'SELECT id, product_id, account_data FROM stock WHERE product_id = ? AND is_sold = 0 LIMIT 1',
-    [productId]
-  );
-  if (!rows.length) return null;
-  const row = rows[0];
-  return { id: row.id, product_id: row.product_id, account_data: row.account_data };
+  try {
+    const rows = await queryAll(
+      'SELECT id, product_id, account_data FROM stock WHERE product_id = ? AND is_sold = 0 LIMIT 1',
+      [productId]
+    );
+    if (!rows.length) return null;
+    return { id: rows[0].id, product_id: rows[0].product_id, account_data: rows[0].account_data };
+  } catch (e) {
+    return null;
+  }
 }
 
 async function markStockSold(stockId, buyerId) {
@@ -431,28 +460,30 @@ async function getOrdersByUser(userId) {
   }
 }
 
-// Hàm lưu User an toàn tuyệt đối
+// Lưu user luôn có balance = 0 nếu thiếu
 async function saveUser(id, firstName, username) {
   try {
     if (mode === 'mysql') {
       await queryRun(
-        'INSERT INTO users (id, first_name, username) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE first_name = ?, username = ?',
+        'INSERT INTO users (id, first_name, username, balance) VALUES (?, ?, ?, 0) ON DUPLICATE KEY UPDATE first_name = ?, username = ?',
         [id, firstName || '', username || '', firstName || '', username || '']
       );
     } else {
       const userColumns = sqliteDb.prepare("PRAGMA table_info(users)").all().map(c => c.name);
       if (userColumns.includes('first_name')) {
         await queryRun(
-          `INSERT INTO users (id, first_name, username) VALUES (?, ?, ?)
+          `INSERT INTO users (id, first_name, username, balance) VALUES (?, ?, ?, 0)
            ON CONFLICT(id) DO UPDATE SET first_name = excluded.first_name, username = excluded.username`,
           [id, firstName || '', username || '']
         );
       } else {
-        await queryRun(`INSERT OR IGNORE INTO users (id) VALUES (?)`, [id]);
+        await queryRun(`INSERT OR IGNORE INTO users (id, balance) VALUES (?, 0)`, [id]);
       }
     }
   } catch (e) {
-    console.log("saveUser fallback:", e.message);
+    try {
+      await queryRun(`INSERT OR IGNORE INTO users (id) VALUES (?)`, [id]);
+    } catch (_) {}
   }
 }
 
@@ -481,13 +512,17 @@ async function updatePriceTiers(id, priceTiers) {
 }
 
 async function getStockByProduct(productId) {
-  const rows = await queryAll('SELECT id, account_data, is_sold, buyer_id FROM stock WHERE product_id = ?', [productId]);
-  return rows.map((row) => ({
-    id: row.id,
-    account_data: row.account_data,
-    is_sold: row.is_sold,
-    buyer_id: row.buyer_id
-  }));
+  try {
+    const rows = await queryAll('SELECT id, account_data, is_sold, buyer_id FROM stock WHERE product_id = ?', [productId]);
+    return rows.map((row) => ({
+      id: row.id,
+      account_data: row.account_data,
+      is_sold: row.is_sold,
+      buyer_id: row.buyer_id
+    }));
+  } catch (e) {
+    return [];
+  }
 }
 
 async function getOrderHistory(userId) {
@@ -563,6 +598,23 @@ async function keepAlive() {
     else if (sqliteDb) sqliteDb.prepare('SELECT 1').get();
   } catch (error) {
     console.error('❌ Database keep-alive failed:', error.message);
+  }
+}
+
+async function getUserLang(userId) {
+  try {
+    const rows = await queryAll('SELECT lang FROM users WHERE id = ?', [userId]);
+    return rows?.[0]?.lang || 'vi';
+  } catch (e) {
+    return 'vi';
+  }
+}
+
+async function setUserLang(userId, lang) {
+  try {
+    return await queryRun('UPDATE users SET lang = ? WHERE id = ?', [lang, userId]);
+  } catch (e) {
+    return false;
   }
 }
 
@@ -648,6 +700,7 @@ module.exports = {
   addCategory,
   deleteCategory,
   getAllProducts,
+  getProductsByCategory,
   getProduct,
   addProduct,
   deleteProduct,
@@ -678,5 +731,8 @@ module.exports = {
   createDeposit,
   getPendingDeposits,
   updateDepositStatus,
-  getUserDepositStats
+  getUserDepositStats,
+  getUserLang,
+  setUserLang
 };
+

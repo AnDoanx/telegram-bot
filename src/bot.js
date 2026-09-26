@@ -1,4 +1,6 @@
 const TelegramBot = require('node-telegram-bot-api');
+const os = require('os');
+const { createCanvas } = require('canvas');
 const config = require('./config');
 const db = require('./database');
 const sepay = require('./sepay');
@@ -7,32 +9,28 @@ const formatPrice = (price) => (price || 0).toLocaleString('vi-VN') + 'đ';
 const isAdmin = (userId) => config.ADMIN_IDS.map(id => id.toString()).includes(userId.toString());
 const getFullName = (user) => (user.first_name + (user.last_name ? ' ' + user.last_name : '')).trim();
 const ORDER_TIMEOUT_MS = 20 * 60 * 1000;
-
-// Không ép thêm khoảng trắng để tránh vỡ nút trên điện thoại
-function cleanLabel(text) {
-  return text.trim();
-}
+const BOT_START_TIME = Date.now();
 
 const MESSAGES = {
   vi: {
     channel: '📢 Kênh:',
-    admin_support: '👑 Hỗ trợ:',
-    acc_info: '💳 VÍ TIỀN & TÀI KHOẢN',
-    total_deposit: '▫️ Tổng nạp:',
-    month_deposit: '▫️ Nạp tháng:',
-    balance: '▫️ Số dư ví:',
-    choose_category: '📂 <b>DANH MỤC MẶT HÀNG:</b>\n<i>(Chọn danh mục bên dưới để xem hàng)</i>',
+    admin_support: '👑 CSKH:',
+    acc_info: '💳 TÀI CHÍNH',
+    total_deposit: '├ Tổng nạp:',
+    month_deposit: '├ Nạp tháng:',
+    balance: '╰ Số dư ví:',
+    choose_category: '📂 <b>DANH MỤC MẶT HÀNG:</b>\n<i>(Chạm vào danh mục để xem sản phẩm)</i>',
     btn_deposit: '💳 Nạp tiền',
     btn_top: '🏆 Top nạp',
     btn_profile: '👤 Tài khoản',
     btn_history: '📜 Lịch sử',
-    btn_support: '💬 CSKH',
+    btn_support: '💬 Hỗ trợ CSKH',
     btn_change_lang: '🌐 Ngôn ngữ',
-    btn_back_cat: '◀️ Danh mục',
+    btn_back_cat: '◀️ Quay lại',
     btn_back_home: '◀️ Trang chủ',
     stock_in: 'Còn',
     stock_out: 'Hết',
-    buy_wallet: '⚡ Mua bằng VÍ',
+    buy_wallet: '⚡ Mua bằng ví',
     buy_bank: '🏦 Quét VietQR',
     insufficient_balance: 'Số dư ví không đủ! Vui lòng nạp thêm.',
     out_of_stock: 'Mặt hàng đã hết trong kho!',
@@ -41,30 +39,131 @@ const MESSAGES = {
   en: {
     channel: '📢 Channel:',
     admin_support: '👑 Support:',
-    acc_info: '💳 ACCOUNT OVERVIEW',
-    total_deposit: '▫️ Total:',
-    month_deposit: '▫️ Month:',
-    balance: '▫️ Balance:',
-    choose_category: '📂 <b>CATEGORIES:</b>\n<i>(Select a category below to browse)</i>',
+    acc_info: '💳 BALANCE',
+    total_deposit: '├ Total:',
+    month_deposit: '├ Month:',
+    balance: '╰ Wallet:',
+    choose_category: '📂 <b>CATEGORIES:</b>\n<i>(Select category to browse items)</i>',
     btn_deposit: '💳 Deposit',
     btn_top: '🏆 Top Users',
     btn_profile: '👤 Profile',
     btn_history: '📜 History',
-    btn_support: '💬 Support',
+    btn_support: '💬 Support 24/7',
     btn_change_lang: '🌐 Language',
-    btn_back_cat: '◀️ Categories',
-    btn_back_home: '◀️ Main Menu',
-    stock_in: 'In Stock',
+    btn_back_cat: '◀️ Back',
+    btn_back_home: '◀️ Home',
+    stock_in: 'Stock',
     stock_out: 'Sold Out',
     buy_wallet: '⚡ Pay via Wallet',
     buy_bank: '🏦 Pay via QR',
     insufficient_balance: 'Insufficient balance! Please deposit.',
-    out_of_stock: 'Out of stock!',
+    out_of_stock: 'This product is out of stock!',
     order_confirm: '🧾 CONFIRMATION'
   }
 };
 
-// Căn chỉnh tin nhắn trực tiếp không bị vỡ giao diện
+// ==================== VẼ ẢNH UPTIME VPS BẰNG CANVAS ====================
+function formatDuration(seconds) {
+  const d = Math.floor(seconds / (3600 * 24));
+  const h = Math.floor((seconds % (3600 * 24)) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return `${d}d ${h}h ${m}m ${s}s`;
+}
+
+function generateUptimeImage() {
+  const width = 800;
+  const height = 460;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  // Background Gradient Dark Theme
+  const bgGrad = ctx.createLinearGradient(0, 0, width, height);
+  bgGrad.addColorStop(0, '#0b0f19');
+  bgGrad.addColorStop(1, '#111827');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, width, height);
+
+  // Khung viền ngoài
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(10, 10, width - 20, height - 20);
+
+  // Header Title
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 28px sans-serif';
+  ctx.fillText('⚡ VPS SYSTEM MONITOR & UPTIME', 40, 60);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '16px sans-serif';
+  ctx.fillText(`Server OS: ${os.type()} ${os.arch()} | Platform: ${os.platform()}`, 40, 90);
+
+  // Line ngăn cách
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(40, 110);
+  ctx.lineTo(width - 40, 110);
+  ctx.stroke();
+
+  // Tính toán RAM
+  const totalMem = (os.totalmem() / 1024 / 1024 / 1024).toFixed(2);
+  const freeMem = (os.freemem() / 1024 / 1024 / 1024).toFixed(2);
+  const usedMem = (totalMem - freeMem).toFixed(2);
+  const memPct = Math.round((usedMem / totalMem) * 100);
+
+  // Uptime
+  const vpsUptime = formatDuration(os.uptime());
+  const botUptime = formatDuration((Date.now() - BOT_START_TIME) / 1000);
+
+  // Vẽ các khối thông số
+  function drawMetricBox(x, y, w, h, title, val, color) {
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.6)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, h);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '14px sans-serif';
+    ctx.fillText(title, x + 16, y + 28);
+
+    ctx.fillStyle = color;
+    ctx.font = 'bold 20px monospace';
+    ctx.fillText(val, x + 16, y + 64);
+  }
+
+  drawMetricBox(40, 135, 340, 90, '🖥️ VPS UPTIME', vpsUptime, '#4ade80');
+  drawMetricBox(420, 135, 340, 90, '🤖 BOT UPTIME', botUptime, '#38bdf8');
+  drawMetricBox(40, 245, 340, 90, '📊 CPU CORES & LOAD', `${os.cpus().length} Cores | Node ${process.version}`, '#facc15');
+  drawMetricBox(420, 245, 340, 90, '💾 RAM USAGE', `${usedMem}GB / ${totalMem}GB (${memPct}%)`, '#f43f5e');
+
+  // Vẽ thanh đo RAM Bar
+  const barX = 40;
+  const barY = 370;
+  const barW = width - 80;
+  const barH = 18;
+
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(barX, barY, barW, barH);
+
+  const fillW = Math.round((barW * memPct) / 100);
+  const ramGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  ramGrad.addColorStop(0, '#38bdf8');
+  ramGrad.addColorStop(0.7, '#facc15');
+  ramGrad.addColorStop(1, '#f43f5e');
+  ctx.fillStyle = ramGrad;
+  ctx.fillRect(barX, barY, fillW, barH);
+
+  // Footer status
+  ctx.fillStyle = '#64748b';
+  ctx.font = '13px monospace';
+  ctx.fillText(`• RAM: ${memPct}% Used • Real-time generated by Canvas • Status: Operational`, 40, 420);
+
+  return canvas.toBuffer('image/png');
+}
+
+// Hàm gửi tin nhắn không bị gián đoạn
 async function sendOrEditText(bot, chatId, messageId, text, keyboard) {
   if (messageId) {
     try {
@@ -102,9 +201,9 @@ function formatTierBullets(product) {
       const pct = base > 0 ? Math.round((1 - tier.price / base) * 100) : 0;
       const sfx = pct > 0 ? ' (giảm ' + pct + '%)' : '';
       if (next) {
-        return ' ├ ' + tier.min + ' - ' + (next.min - 1) + ' SP  ➔  <b>' + formatPrice(tier.price) + '</b>/SP' + sfx;
+        return ' ├ ' + tier.min + ' - ' + (next.min - 1) + ' SP ➔ <b>' + formatPrice(tier.price) + '</b>/SP' + sfx;
       }
-      return ' ╰ Từ ' + tier.min + ' SP  ➔  <b>' + formatPrice(tier.price) + '</b>/SP' + sfx;
+      return ' ╰ Từ ' + tier.min + ' SP ➔ <b>' + formatPrice(tier.price) + '</b>/SP' + sfx;
     })
     .join('\n') + '\n\n';
 }
@@ -146,12 +245,12 @@ function productPriceBlockAdmin(product) {
 
 function adminProductKeyboard(productId) {
   return [
-    [{ text: cleanLabel('✏️ Đổi tên'), callback_data: 'adm_edit_name_' + productId }, { text: cleanLabel('💵 Đổi giá'), callback_data: 'adm_edit_price_' + productId }],
-    [{ text: cleanLabel('📁 Danh mục'), callback_data: 'adm_change_cat_' + productId }, { text: cleanLabel('📊 Bảng giá sỉ'), callback_data: 'adm_edit_tiers_' + productId }],
-    [{ text: cleanLabel('📝 Sửa mô tả'), callback_data: 'adm_edit_desc_' + productId }],
-    [{ text: cleanLabel('📥 Nạp stock'), callback_data: 'adm_addstock_' + productId }, { text: cleanLabel('👁️ Xem tồn kho'), callback_data: 'adm_viewstock_' + productId }],
-    [{ text: cleanLabel('🗑️ Xóa sản phẩm'), callback_data: 'adm_delete_' + productId }],
-    [{ text: cleanLabel('◀️ Về danh sách'), callback_data: 'adm_back_list' }]
+    [{ text: '✏️ Đổi tên', callback_data: 'adm_edit_name_' + productId }, { text: '💵 Đổi giá', callback_data: 'adm_edit_price_' + productId }],
+    [{ text: '📁 Danh mục', callback_data: 'adm_change_cat_' + productId }, { text: '📊 Giá sỉ', callback_data: 'adm_edit_tiers_' + productId }],
+    [{ text: '📝 Sửa mô tả', callback_data: 'adm_edit_desc_' + productId }],
+    [{ text: '📥 Nạp stock', callback_data: 'adm_addstock_' + productId }, { text: '👁️ Xem tồn kho', callback_data: 'adm_viewstock_' + productId }],
+    [{ text: '🗑️ Xóa sản phẩm', callback_data: 'adm_delete_' + productId }],
+    [{ text: '◀️ Về danh sách', callback_data: 'adm_back_list' }]
   ];
 }
 
@@ -199,7 +298,7 @@ async function deliverOrder(bot, orderId, chatId, userId, userFrom, product, acc
               HÓA ĐƠN MUA HÀNG
 ==================================================
  Mã đơn hàng: #${orderId}
- Sản phẩm:    ${product.name}
+ Mặt hàng:    ${product.name}
  Số lượng:    ${accounts.length}
  Khách hàng:  ${getFullName(userFrom)} (${userId})
  Thời gian:   ${new Date().toLocaleString('vi-VN')}
@@ -210,7 +309,7 @@ ${accounts.map((acc, i) => `[${i + 1}] ${acc}`).join('\n')}
 
 ==================================================
  Cảm ơn bạn đã tin tưởng ủng hộ shop!
- Lưu ý: Vui lòng đổi mật khẩu để bảo vệ tài khoản ngay!
+ Lưu ý: Vui lòng đổi mật khẩu để bảo mật tài khoản!
 ==================================================`;
 
   const txtBuffer = Buffer.from(txtContent, 'utf-8');
@@ -250,19 +349,20 @@ ${accounts.map((acc, i) => `[${i + 1}] ${acc}`).join('\n')}
 
   config.ADMIN_IDS.forEach(id => {
     bot.sendMessage(id, adminMsg, { parse_mode: 'HTML' }).catch(() => {});
-    bot.sendDocument(id, txtBuffer, { caption: `📁 File đơn #${orderId}` }, { filename, contentType: 'text/plain' }).catch(() => {});
+    bot.sendDocument(id, txtBuffer, { caption: `📁 Backup đơn #${orderId}` }, { filename, contentType: 'text/plain' }).catch(() => {});
   });
 }
 
 function getLanguageKeyboard() {
   return [
     [
-      { text: cleanLabel('🇻🇳 Tiếng Việt'), callback_data: 'set_lang_vi' },
-      { text: cleanLabel('🇬🇧 English'), callback_data: 'set_lang_en' }
+      { text: '🇻🇳 Tiếng Việt', callback_data: 'set_lang_vi' },
+      { text: '🇬🇧 English', callback_data: 'set_lang_en' }
     ]
   ];
 }
 
+// CĂN CHỈNH MENU CHUẨN ĐỐI XỨNG
 async function buildMainMenu(userId) {
   let lang = await db.getUserLang(userId) || 'vi';
   const t = MESSAGES[lang] || MESSAGES.vi;
@@ -272,7 +372,7 @@ async function buildMainMenu(userId) {
 
   const text = 
 `╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
-  ⚡ <b>${config.SHOP_NAME || 'STORE TỰ ĐỘNG'}</b> ⚡
+  ⚡ <b>${(config.SHOP_NAME || 'STORE TỰ ĐỘNG').toUpperCase()}</b> ⚡
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯
 ${t.channel} @cloneffgiare
 ${t.admin_support} @accffgiatot
@@ -287,35 +387,38 @@ ${t.choose_category}`;
   const categories = await db.getAllCategories();
   const keyboard = [];
 
+  // Nút danh mục cân đối 2 đầu
   if (categories.length > 0) {
     categories.forEach(c => {
       keyboard.push([{
-        text: cleanLabel(`📂 ${c.name} (${c.product_count} SP)`),
+        text: `📁  ${c.name.toUpperCase()}  [ ${c.product_count} SP ]  ▸`,
         callback_data: 'view_category_' + c.id
       }]);
     });
   } else {
     keyboard.push([{
-      text: cleanLabel('⚠️ Đang cập nhật danh mục'),
+      text: '▫️ Đang cập nhật sản phẩm ▫️',
       callback_data: 'none'
     }]);
   }
 
-  // Chia 2 cột đều tăm tắp, không bị lệch lề
+  // Cột 1: Nạp tiền - Top nạp
   keyboard.push([
-    { text: cleanLabel(t.btn_deposit), callback_data: 'deposit_menu' },
-    { text: cleanLabel(t.btn_top), callback_data: 'view_top_deposits' }
+    { text: t.btn_deposit, callback_data: 'deposit_menu' },
+    { text: t.btn_top, callback_data: 'view_top_deposits' }
   ]);
 
+  // Cột 2: Tài khoản - Lịch sử
   keyboard.push([
-    { text: cleanLabel(t.btn_profile), callback_data: 'main_profile' },
-    { text: cleanLabel(t.btn_history), callback_data: 'main_history' }
+    { text: t.btn_profile, callback_data: 'main_profile' },
+    { text: t.btn_history, callback_data: 'main_history' }
   ]);
 
-  const bottomRow = [{ text: cleanLabel(t.btn_change_lang), callback_data: 'change_language' }];
+  // Cột 3: Ngôn ngữ - CSKH (chia 50/50 cân xứng)
+  const bottomRow = [{ text: t.btn_change_lang, callback_data: 'change_language' }];
   const adminUser = (config.ADMIN_USER_NAME || '').trim().replace('@', '');
   if (adminUser) {
-    bottomRow.push({ text: cleanLabel(t.btn_support), url: 'https://t.me/' + adminUser });
+    bottomRow.push({ text: t.btn_support, url: 'https://t.me/' + adminUser });
   }
   keyboard.push(bottomRow);
 
@@ -363,14 +466,15 @@ async function startBot() {
 
   config.ADMIN_IDS.forEach(adminId => {
     bot.setMyCommands([
+      { command: 'uptime', description: '⚡ Kiểm tra Uptime VPS Canvas' },
       { command: 'categories', description: '📁 Quản lý danh mục' },
       { command: 'products', description: '⚙️ Quản trị sản phẩm' },
       { command: 'orders', description: '📦 Danh sách đơn hàng' },
       { command: 'revenue', description: '📈 Thống kê doanh thu' },
-      { command: 'stats', description: '📊 Tồn kho' },
+      { command: 'stats', description: '📊 Kiểm tra tồn kho' },
       { command: 'users', description: '👥 Quản lý thành viên' },
-      { command: 'broadcast', description: '📣 Thông báo toàn shop' },
-      { command: 'setmoney', description: '💵 Chỉnh số dư ví' }
+      { command: 'broadcast', description: '📣 Thông báo shop' },
+      { command: 'setmoney', description: '💵 Chỉnh sửa số dư' }
     ], { scope: { type: 'chat', chat_id: adminId } });
   });
 
@@ -387,7 +491,7 @@ async function startBot() {
       if (now - order.createdAt > ORDER_TIMEOUT_MS) {
         pendingOrders.delete(orderId);
         await db.updateOrder(orderId, null, 'expired');
-        bot.sendMessage(order.chatId, `⏰ Đơn hàng <b>#${orderId}</b> đã hết hạn thanh toán.\n👉 Hãy gõ /menu để mua lại!`, { parse_mode: 'HTML' });
+        bot.sendMessage(order.chatId, `⏰ Đơn hàng <b>#${orderId}</b> đã bị hủy do hết hạn thanh toán.\n👉 Hãy gõ /menu để mua lại!`, { parse_mode: 'HTML' });
         continue;
       }
 
@@ -457,7 +561,22 @@ async function startBot() {
     }
   }, 25000);
 
-  // ==================== LỆNH GIAO DIỆN CHÍNH ====================
+  // ==================== LỆNH /uptime VẼ CANVAS (CHỈ ADMIN) ====================
+  bot.onText(/\/uptime/, async (msg) => {
+    if (!isAdmin(msg.from.id)) return;
+
+    try {
+      const imgBuffer = generateUptimeImage();
+      await bot.sendPhoto(msg.chat.id, imgBuffer, {
+        caption: `⚡ <b>THÔNG SỐ MÁY CHỦ VPS & BOT</b>\n<i>Được tạo thời gian thực lúc: ${new Date().toLocaleTimeString('vi-VN')}</i>`,
+        parse_mode: 'HTML'
+      });
+    } catch (err) {
+      console.log('Lỗi vẽ canvas uptime:', err.message);
+      bot.sendMessage(msg.chat.id, '❌ Không thể tạo ảnh Canvas! Hãy đảm bảo đã chạy `npm install canvas`.');
+    }
+  });
+
   bot.onText(/\/start/, async (msg) => {
     const userId = msg.from.id;
     await db.saveUser(userId, getFullName(msg.from), msg.from.username || '');
@@ -491,7 +610,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
 
     const text = 
 `╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
-  📈 <b>BÁO CÁO DOANH THU SHOP</b>
+  📈 <b>BÁO CÁO DOANH THU</b>
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯
  ├ 💵 <b>Doanh thu:</b> <code>${formatPrice(stats.total_revenue)}</code>
  ├ ✅ <b>Thành công:</b> <code>${stats.total_orders} đơn</code>
@@ -524,10 +643,10 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
   bot.onText(/\/categories/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
     const categories = await db.getAllCategories();
-    const keyboard = categories.map(c => [{ text: cleanLabel(`📂 ${c.name} (${c.product_count} SP)`), callback_data: `adm_cat_detail_${c.id}` }]);
-    keyboard.push([{ text: cleanLabel('➕ Thêm danh mục mới'), callback_data: 'adm_add_cat' }]);
+    const keyboard = categories.map(c => [{ text: `📂 ${c.name} (${c.product_count} SP)`, callback_data: `adm_cat_detail_${c.id}` }]);
+    keyboard.push([{ text: '➕ Thêm danh mục mới', callback_data: 'adm_add_cat' }]);
 
-    bot.sendMessage(msg.chat.id, `📁 <b>QUẢN LÝ DANH MỤC THƯ MỤC:</b>\nHiện có <b>${categories.length}</b> danh mục:`, {
+    bot.sendMessage(msg.chat.id, `📁 <b>QUẢN LÝ DANH MỤC:</b>\nHiện có <b>${categories.length}</b> danh mục:`, {
       parse_mode: 'HTML',
       reply_markup: { inline_keyboard: keyboard }
     });
@@ -536,8 +655,8 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
   bot.onText(/\/products/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
     const products = await db.getAllProducts();
-    const keyboard = products.map(p => [{ text: cleanLabel(`📦 #${p.id} ${p.name} (Kho: ${p.stock_count})`), callback_data: 'adm_product_' + p.id }]);
-    keyboard.push([{ text: cleanLabel('➕ Thêm sản phẩm mới'), callback_data: 'adm_add_product' }]);
+    const keyboard = products.map(p => [{ text: `📦 #${p.id} ${p.name} (Kho: ${p.stock_count})`, callback_data: 'adm_product_' + p.id }]);
+    keyboard.push([{ text: '➕ Thêm sản phẩm mới', callback_data: 'adm_add_product' }]);
     bot.sendMessage(msg.chat.id, `⚙️ <b>QUẢN TRỊ SẢN PHẨM:</b>\n📊 Tổng cộng: <b>${products.length}</b> mặt hàng.`, { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
   });
 
@@ -601,7 +720,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
                  '✏️ Nhắn nội dung thông báo vào đây:';
     bot.sendMessage(msg.chat.id, text, {
       parse_mode: 'HTML',
-      reply_markup: { inline_keyboard: [[{ text: cleanLabel('❌ Hủy bỏ'), callback_data: 'cancel_broadcast' }]] }
+      reply_markup: { inline_keyboard: [[{ text: '❌ Hủy bỏ', callback_data: 'cancel_broadcast' }]] }
     });
   });
 
@@ -619,7 +738,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         await bot.sendMessage(user.id, `📢 <b>THÔNG BÁO TỪ SHOP:</b>\n\n${content}`, {
           parse_mode: 'HTML',
           reply_markup: {
-            inline_keyboard: [[{ text: cleanLabel('🛒 Mở Menu Cửa Hàng'), callback_data: 'back_main' }]]
+            inline_keyboard: [[{ text: '🛒 Mở Cửa Hàng', callback_data: 'back_main' }]]
           }
         });
         sent++;
@@ -662,7 +781,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
     await bot.sendPhoto(chatId, getQRUrl(amount, content), {
       caption: caption,
       parse_mode: 'HTML',
-      reply_markup: { inline_keyboard: [[{ text: cleanLabel('◀️ Quay lại Hồ sơ'), callback_data: 'main_profile' }]] }
+      reply_markup: { inline_keyboard: [[{ text: '◀️ Quay lại Hồ sơ', callback_data: 'main_profile' }]] }
     });
 
     const adminMsg = 
@@ -674,7 +793,6 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
     notifyAllAdmins(bot, adminMsg);
   }
 
-  // ==================== BỘ XỬ LÝ SỰ KIỆN CALLBACK QUERY ====================
   bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const userId = query.from.id;
@@ -716,7 +834,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
 
         let text = 
 `╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
-  🏆 <b>BẢNG VINH DANH TOP ĐẠI GIA</b> 🏆
+  🏆 <b>BẢNG VINH DANH TOP NẠP</b> 🏆
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯
 <i>Tri ân sự tin tưởng và đồng hành của bạn!</i>
 ─────────────────────────\n`;
@@ -738,8 +856,8 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         text += `─────────────────────────\n💡 <i>Nạp tiền ngay để vinh danh trên bảng vàng!</i>`;
 
         const keyboard = [
-          [{ text: cleanLabel('💳 Nạp tiền ngay'), callback_data: 'deposit_menu' }],
-          [{ text: cleanLabel('◀️ Về Trang Chủ'), callback_data: 'back_main' }]
+          [{ text: '💳 Nạp tiền ngay', callback_data: 'deposit_menu' }],
+          [{ text: '◀️ Về Trang Chủ', callback_data: 'back_main' }]
         ];
 
         return await sendOrEditText(bot, chatId, messageId, text, keyboard);
@@ -758,9 +876,9 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
 
         const keyboard = products.map(p => {
           const stockBadge = p.stock_count > 0 ? `🟢 ${t.stock_in} ${p.stock_count}` : `🔴 ${t.stock_out}`;
-          return [{ text: cleanLabel(`💎 ${p.name} ▫️ ${getDisplayPrice(p)} [${stockBadge}]`), callback_data: 'product_' + p.id }];
+          return [{ text: `💎 ${p.name} ▫️ ${getDisplayPrice(p)} [${stockBadge}]`, callback_data: 'product_' + p.id }];
         });
-        keyboard.push([{ text: cleanLabel(t.btn_back_home), callback_data: 'back_main' }]);
+        keyboard.push([{ text: t.btn_back_home, callback_data: 'back_main' }]);
 
         const text = 
 `╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
@@ -784,7 +902,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
           if (n <= stock) {
             const unitPrice = db.getUnitPrice(product, n);
             const label = unitPrice < product.price ? '『x' + n + '』 ' + formatPrice(unitPrice) : '『x' + n + '』';
-            qtyButtons.push({ text: cleanLabel(label), callback_data: 'qty_' + product.id + '_' + n });
+            qtyButtons.push({ text: label, callback_data: 'qty_' + product.id + '_' + n });
           }
         });
 
@@ -797,13 +915,13 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         }
 
         if (stock > 5) {
-          keyboard.push([{ text: cleanLabel('📝 Nhập số lượng khác'), callback_data: 'customqty_' + product.id }]);
+          keyboard.push([{ text: '📝 Nhập số lượng khác', callback_data: 'customqty_' + product.id }]);
         }
 
         if (product.category_id > 0) {
-          keyboard.push([{ text: cleanLabel('◀️ Quay lại danh mục'), callback_data: 'view_category_' + product.category_id }]);
+          keyboard.push([{ text: '◀️ Quay lại danh mục', callback_data: 'view_category_' + product.category_id }]);
         } else {
-          keyboard.push([{ text: cleanLabel(t.btn_back_home), callback_data: 'main_shop' }]);
+          keyboard.push([{ text: t.btn_back_home, callback_data: 'main_shop' }]);
         }
 
         const text = 
@@ -832,7 +950,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
                      '📊 Kho hiện có: <b>' + product.stock_count + '</b> sp\n\n' +
                      '✏️ <i>Nhập số lượng bạn muốn mua:</i>';
 
-        return await sendOrEditText(bot, chatId, messageId, text, [[{ text: cleanLabel('❌ Hủy bỏ'), callback_data: 'product_' + productId }]]);
+        return await sendOrEditText(bot, chatId, messageId, text, [[{ text: '❌ Hủy bỏ', callback_data: 'product_' + productId }]]);
       }
 
       if (data.startsWith('qty_')) {
@@ -858,9 +976,9 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
 <i>Chọn hình thức thanh toán bên dưới:</i>`;
 
         const keyboard = [
-          [{ text: cleanLabel('⚡ Mua bằng SỐ DƯ VÍ'), callback_data: `paywallet_${productId}_${qty}` }],
-          [{ text: cleanLabel('🏦 Quét mã QR NGÂN HÀNG'), callback_data: `paybank_${productId}_${qty}` }],
-          [{ text: cleanLabel('◀️ Thay đổi số lượng'), callback_data: `product_${productId}` }]
+          [{ text: '⚡ Mua bằng SỐ DƯ VÍ', callback_data: `paywallet_${productId}_${qty}` }],
+          [{ text: '🏦 Quét mã QR NGÂN HÀNG', callback_data: `paybank_${productId}_${qty}` }],
+          [{ text: '◀️ Thay đổi số lượng', callback_data: `product_${productId}` }]
         ];
 
         return await sendOrEditText(bot, chatId, messageId, text, keyboard);
@@ -922,15 +1040,15 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
  ╰ 📝 <b>Nội dung CK:</b> <code>${content}</code>
 ─────────────────────────
 📲 <i>Quét mã QR bên trên để thanh toán tự động.</i>
-⚡ <i>Hệ thống tự động phát file tài khoản ngay khi nhận tiền!</i>`;
+⚡ <i>Hệ thống tự động phát file tài khoản ngay sau khi nhận tiền!</i>`;
 
         await bot.sendPhoto(chatId, getQRUrl(totalPrice, content), {
           caption,
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
-              [{ text: cleanLabel('🔄 Kiểm tra thanh toán'), callback_data: 'check_' + orderId + '_' + productId + '_' + qty }],
-              [{ text: cleanLabel('❌ Hủy đơn này'), callback_data: 'cancel_' + orderId }]
+              [{ text: '🔄 Kiểm tra thanh toán', callback_data: 'check_' + orderId + '_' + productId + '_' + qty }],
+              [{ text: '❌ Hủy đơn này', callback_data: 'cancel_' + orderId }]
             ]
           }
         });
@@ -1018,9 +1136,9 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
  ╰ 💸 <b>Đã tiêu:</b> <code>${formatPrice(totalSpent)}</code>`;
 
         const keyboard = [
-          [{ text: cleanLabel('💳 Nạp tiền vào ví'), callback_data: 'deposit_menu' }],
-          [{ text: cleanLabel('📜 Lịch sử mua hàng'), callback_data: 'main_history' }],
-          [{ text: cleanLabel('◀️ Về Trang Chủ'), callback_data: 'back_main' }]
+          [{ text: '💳 Nạp tiền vào ví', callback_data: 'deposit_menu' }],
+          [{ text: '📜 Lịch sử mua hàng', callback_data: 'main_history' }],
+          [{ text: '◀️ Về Trang Chủ', callback_data: 'back_main' }]
         ];
 
         return await sendOrEditText(bot, chatId, messageId, text, keyboard);
@@ -1035,10 +1153,10 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
 Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
 
         const keyboard = [
-          [{ text: cleanLabel('💵 20.000đ'), callback_data: 'dep_amt_20000' }, { text: cleanLabel('💵 50.000đ'), callback_data: 'dep_amt_50000' }],
-          [{ text: cleanLabel('💵 100.000đ'), callback_data: 'dep_amt_100000' }, { text: cleanLabel('💵 200.000đ'), callback_data: 'dep_amt_200000' }],
-          [{ text: cleanLabel('💵 500.000đ'), callback_data: 'dep_amt_500000' }, { text: cleanLabel('✏️ Nhập số khác'), callback_data: 'dep_custom' }],
-          [{ text: cleanLabel('◀️ Về Trang Chủ'), callback_data: 'back_main' }]
+          [{ text: '💵 20.000đ', callback_data: 'dep_amt_20000' }, { text: '💵 50.000đ', callback_data: 'dep_amt_50000' }],
+          [{ text: '💵 100.000đ', callback_data: 'dep_amt_100000' }, { text: '💵 200.000đ', callback_data: 'dep_amt_200000' }],
+          [{ text: '💵 500.000đ', callback_data: 'dep_amt_500000' }, { text: '✏️ Nhập số khác', callback_data: 'dep_custom' }],
+          [{ text: '◀️ Về Trang Chủ', callback_data: 'back_main' }]
         ];
 
         return await sendOrEditText(bot, chatId, messageId, text, keyboard);
@@ -1053,7 +1171,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
       if (data === 'dep_custom') {
         waitingEdit.set(userId, { field: 'custom_deposit', messageId });
         const text = `✏️ <b>NHẬP SỐ TIỀN CẦN NẠP</b>\n─────────────────────────\n<i>Vui lòng nhập số tiền bạn muốn nạp (tối thiểu 10.000đ):</i>`;
-        return await sendOrEditText(bot, chatId, messageId, text, [[{ text: cleanLabel('❌ Hủy bỏ'), callback_data: 'deposit_menu' }]]);
+        return await sendOrEditText(bot, chatId, messageId, text, [[{ text: '❌ Hủy bỏ', callback_data: 'deposit_menu' }]]);
       }
 
       if (data === 'main_history') {
@@ -1069,10 +1187,10 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
           const statusIcon = o.status === 'completed' ? '✅' : o.status === 'pending' ? '⏳' : '❌';
           text += `${statusIcon} <b>#${o.id}</b> • <b>${o.product_name}</b> (x${o.quantity || 1}) - <code>${formatPrice(o.total_price)}</code>\n`;
           if (o.status === 'completed' && o.delivered_data) {
-            keyboard.push([{ text: cleanLabel(`📥 Nhận file đơn #${o.id} (${o.product_name})`), callback_data: `dl_order_${o.id}` }]);
+            keyboard.push([{ text: `📥 Tải file đơn #${o.id} (${o.product_name})`, callback_data: `dl_order_${o.id}` }]);
           }
         });
-        keyboard.push([{ text: cleanLabel('◀️ Về Trang Chủ'), callback_data: 'back_main' }]);
+        keyboard.push([{ text: '◀️ Về Trang Chủ', callback_data: 'back_main' }]);
 
         return await sendOrEditText(bot, chatId, messageId, text, keyboard);
       }
@@ -1092,7 +1210,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
         if (data === 'adm_add_cat') {
           waitingEdit.set(userId, { field: 'new_category', messageId });
           const text = '📁 <b>TẠO DANH MỤC MỚI</b>\n─────────────────────────\nNhập cú pháp: <code>Tên|Mô tả</code>\nVí dụ: <code>Acc Free Fire VIP|Nick VIP full skin</code>';
-          return await sendOrEditText(bot, chatId, messageId, text, [[{ text: cleanLabel('❌ Hủy'), callback_data: 'adm_back_categories' }]]);
+          return await sendOrEditText(bot, chatId, messageId, text, [[{ text: '❌ Hủy', callback_data: 'adm_back_categories' }]]);
         }
 
         if (data.startsWith('adm_cat_detail_')) {
@@ -1112,9 +1230,9 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
           }
 
           const keyboard = [
-            [{ text: cleanLabel('➕ Chọn sản phẩm đưa vào'), callback_data: `adm_pick_from_prods_${catId}` }],
-            [{ text: cleanLabel('🗑️ Xóa danh mục này'), callback_data: `adm_delcat_${catId}` }],
-            [{ text: cleanLabel('◀️ Quay lại danh sách'), callback_data: 'adm_back_categories' }]
+            [{ text: '➕ Chọn sản phẩm đưa vào', callback_data: `adm_pick_from_prods_${catId}` }],
+            [{ text: '🗑️ Xóa danh mục này', callback_data: `adm_delcat_${catId}` }],
+            [{ text: '◀️ Quay lại danh sách', callback_data: 'adm_back_categories' }]
           ];
 
           return await sendOrEditText(bot, chatId, messageId, text, keyboard);
@@ -1134,12 +1252,12 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
             const inThisCat = p.category_id === catId;
             const statusIcon = inThisCat ? '✅ [CHỌN]' : '➕ [CHƯA]';
             keyboard.push([{
-              text: cleanLabel(`${statusIcon} #${p.id} ${p.name}`),
+              text: `${statusIcon} #${p.id} ${p.name}`,
               callback_data: `adm_toggle_prodcat_${catId}_${p.id}`
             }]);
           });
 
-          keyboard.push([{ text: cleanLabel('◀️ Hoàn tất / Quay lại'), callback_data: `adm_cat_detail_${catId}` }]);
+          keyboard.push([{ text: '◀️ Hoàn tất / Quay lại', callback_data: `adm_cat_detail_${catId}` }]);
 
           const text = `📁 <b>PHÂN PHỐI SẢN PHẨM: ${cat.name.toUpperCase()}</b>\n` +
                        `<i>Chạm vào từng mục để thêm vào hoặc gỡ ra khỏi danh mục:</i>`;
@@ -1170,11 +1288,11 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
             const inThisCat = p.category_id === catId;
             const statusIcon = inThisCat ? '✅ [CHỌN]' : '➕ [CHƯA]';
             keyboard.push([{
-              text: cleanLabel(`${statusIcon} #${p.id} ${p.name}`),
+              text: `${statusIcon} #${p.id} ${p.name}`,
               callback_data: `adm_toggle_prodcat_${catId}_${p.id}`
             }]);
           });
-          keyboard.push([{ text: cleanLabel('◀️ Hoàn tất / Quay lại'), callback_data: `adm_cat_detail_${catId}` }]);
+          keyboard.push([{ text: '◀️ Hoàn tất / Quay lại', callback_data: `adm_cat_detail_${catId}` }]);
 
           const text = `📁 <b>PHÂN PHỐI SẢN PHẨM: ${cat.name.toUpperCase()}</b>\n` +
                        `<i>Chạm vào từng mục để thêm vào hoặc gỡ ra khỏi danh mục:</i>`;
@@ -1187,15 +1305,15 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
           await db.deleteCategory(catId);
           bot.answerCallbackQuery(query.id, { text: 'Đã xóa danh mục!' });
           const categories = await db.getAllCategories();
-          const keyboard = categories.map(c => [{ text: cleanLabel(`📂 ${c.name} (${c.product_count} SP)`), callback_data: `adm_cat_detail_${c.id}` }]);
-          keyboard.push([{ text: cleanLabel('➕ Thêm danh mục mới'), callback_data: 'adm_add_cat' }]);
+          const keyboard = categories.map(c => [{ text: `📂 ${c.name} (${c.product_count} SP)`, callback_data: `adm_cat_detail_${c.id}` }]);
+          keyboard.push([{ text: '➕ Thêm danh mục mới', callback_data: 'adm_add_cat' }]);
           return await sendOrEditText(bot, chatId, messageId, '✅ <b>Đã xóa danh mục!</b>\n\n📁 <b>QUẢN LÝ DANH MỤC:</b>', keyboard);
         }
 
         if (data === 'adm_back_categories') {
           const categories = await db.getAllCategories();
-          const keyboard = categories.map(c => [{ text: cleanLabel(`📂 ${c.name} (${c.product_count} SP)`), callback_data: `adm_cat_detail_${c.id}` }]);
-          keyboard.push([{ text: cleanLabel('➕ Thêm danh mục mới'), callback_data: 'adm_add_cat' }]);
+          const keyboard = categories.map(c => [{ text: `📂 ${c.name} (${c.product_count} SP)`, callback_data: `adm_cat_detail_${c.id}` }]);
+          keyboard.push([{ text: '➕ Thêm danh mục mới', callback_data: 'adm_add_cat' }]);
           return await sendOrEditText(bot, chatId, messageId, '📁 <b>QUẢN LÝ DANH MỤC:</b>', keyboard);
         }
 
@@ -1205,11 +1323,11 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
 
           if (categories.length > 0) {
             categories.forEach(c => {
-              keyboard.push([{ text: cleanLabel(`📁 Đưa vào: ${c.name}`), callback_data: `adm_addprodto_${c.id}` }]);
+              keyboard.push([{ text: `📁 Đưa vào: ${c.name}`, callback_data: `adm_addprodto_${c.id}` }]);
             });
           }
-          keyboard.push([{ text: cleanLabel('📦 Mục chung (Không mục)'), callback_data: 'adm_addprodto_0' }]);
-          keyboard.push([{ text: cleanLabel('❌ Hủy'), callback_data: 'adm_back_list' }]);
+          keyboard.push([{ text: '📦 Mục chung (Không mục)', callback_data: 'adm_addprodto_0' }]);
+          keyboard.push([{ text: '❌ Hủy', callback_data: 'adm_back_list' }]);
 
           return await sendOrEditText(bot, chatId, messageId, '📁 <b>BƯỚC 1: Chọn danh mục lưu sản phẩm:</b>', keyboard);
         }
@@ -1217,7 +1335,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
         if (data.startsWith('adm_addprodto_')) {
           const catId = parseInt(data.split('_')[2]);
           waitingEdit.set(userId, { field: 'new_product', categoryId: catId, messageId });
-          return await sendOrEditText(bot, chatId, messageId, `➕ <b>BƯỚC 2: NHẬP SẢN PHẨM</b>\n─────────────────────────\nCú pháp: <code>Tên|Giá|Mô tả</code>\nVí dụ: <code>Acc Clone Lv5|25000|Clone sạch</code>`, [[{ text: cleanLabel('❌ Hủy'), callback_data: 'adm_back_list' }]]);
+          return await sendOrEditText(bot, chatId, messageId, `➕ <b>BƯỚC 2: NHẬP SẢN PHẨM</b>\n─────────────────────────\nCú pháp: <code>Tên|Giá|Mô tả</code>\nVí dụ: <code>Acc Clone Lv5|25000|Clone sạch</code>`, [[{ text: '❌ Hủy', callback_data: 'adm_back_list' }]]);
         }
 
         if (data.startsWith('adm_change_cat_')) {
@@ -1226,10 +1344,10 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
           const keyboard = [];
 
           categories.forEach(c => {
-            keyboard.push([{ text: cleanLabel(`📁 Đổi sang: ${c.name}`), callback_data: `adm_apply_cat_${productId}_${c.id}` }]);
+            keyboard.push([{ text: `📁 Đổi sang: ${c.name}`, callback_data: `adm_apply_cat_${productId}_${c.id}` }]);
           });
-          keyboard.push([{ text: cleanLabel('📦 Đổi sang Mục chung'), callback_data: `adm_apply_cat_${productId}_0` }]);
-          keyboard.push([{ text: cleanLabel('◀️ Hủy'), callback_data: `adm_product_${productId}` }]);
+          keyboard.push([{ text: '📦 Đổi sang Mục chung', callback_data: `adm_apply_cat_${productId}_0` }]);
+          keyboard.push([{ text: '◀️ Hủy', callback_data: `adm_product_${productId}` }]);
 
           return await sendOrEditText(bot, chatId, messageId, '📁 <b>Chọn danh mục mới cho sản phẩm này:</b>', keyboard);
         }
@@ -1240,7 +1358,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
             await db.updateProductCategory(parseInt(productId), parseInt(catId));
           }
           bot.answerCallbackQuery(query.id, { text: 'Cập nhật danh mục thành công!' });
-          return await sendOrEditText(bot, chatId, messageId, `✅ Đã chuyển sản phẩm #${productId} sang danh mục mới!`, [[{ text: cleanLabel('◀️ Về thông tin SP'), callback_data: 'adm_product_' + productId }]]);
+          return await sendOrEditText(bot, chatId, messageId, `✅ Đã chuyển sản phẩm #${productId} sang danh mục mới!`, [[{ text: '◀️ Về thông tin SP', callback_data: 'adm_product_' + productId }]]);
         }
 
         if (data.startsWith('adm_product_')) {
@@ -1286,32 +1404,32 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
                        '<code>SốLượng:Giá, SốLượng:Giá, ...</code>\n\n' +
                        '▸ Ví dụ: <code>1:50000, 10:45000, 20:40000</code>\n\n' +
                        '💡 <i>Nhập <b>xoa</b> để hủy bỏ giá sỉ.</i>';
-          return await sendOrEditText(bot, chatId, messageId, text, [[{ text: cleanLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]]);
+          return await sendOrEditText(bot, chatId, messageId, text, [[{ text: '✖️ Hủy', callback_data: 'adm_product_' + productId }]]);
         }
 
         if (data.startsWith('adm_edit_name_')) {
           const productId = parseInt(data.split('_')[3]);
           waitingEdit.set(userId, { productId, field: 'name', messageId });
-          return await sendOrEditText(bot, chatId, messageId, '✏️ Nhập tên mới cho sản phẩm #' + productId + ':', [[{ text: cleanLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]]);
+          return await sendOrEditText(bot, chatId, messageId, '✏️ Nhập tên mới cho sản phẩm #' + productId + ':', [[{ text: '✖️ Hủy', callback_data: 'adm_product_' + productId }]]);
         }
 
         if (data.startsWith('adm_edit_price_')) {
           const productId = parseInt(data.split('_')[3]);
           waitingEdit.set(userId, { productId, field: 'price', messageId });
-          return await sendOrEditText(bot, chatId, messageId, '💵 Nhập giá mới (VNĐ) cho sản phẩm #' + productId + ':', [[{ text: cleanLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]]);
+          return await sendOrEditText(bot, chatId, messageId, '💵 Nhập giá mới (VNĐ) cho sản phẩm #' + productId + ':', [[{ text: '✖️ Hủy', callback_data: 'adm_product_' + productId }]]);
         }
 
         if (data.startsWith('adm_edit_desc_')) {
           const productId = parseInt(data.split('_')[3]);
           waitingEdit.set(userId, { productId, field: 'desc', messageId });
-          return await sendOrEditText(bot, chatId, messageId, '📝 Nhập mô tả mới cho sản phẩm #' + productId + ':', [[{ text: cleanLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]]);
+          return await sendOrEditText(bot, chatId, messageId, '📝 Nhập mô tả mới cho sản phẩm #' + productId + ':', [[{ text: '✖️ Hủy', callback_data: 'adm_product_' + productId }]]);
         }
 
         if (data.startsWith('adm_addstock_')) {
           const productId = parseInt(data.split('_')[2]);
           const product = await db.getProduct(productId);
           waitingStock.set(userId, productId);
-          return await sendOrEditText(bot, chatId, messageId, '➕ <b>NẠP STOCK CHO: ' + product.name + '</b>\n\n<i>Gửi danh sách tài khoản (mỗi acc 1 dòng):</i>', [[{ text: cleanLabel('✖️ Hủy'), callback_data: 'adm_product_' + productId }]]);
+          return await sendOrEditText(bot, chatId, messageId, '➕ <b>NẠP STOCK CHO: ' + product.name + '</b>\n\n<i>Gửi danh sách tài khoản (mỗi acc 1 dòng):</i>', [[{ text: '✖️ Hủy', callback_data: 'adm_product_' + productId }]]);
         }
 
         if (data.startsWith('adm_viewstock_')) {
@@ -1325,15 +1443,15 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
             text += '<i>Danh sách tài khoản (bấm để xóa):</i>\n';
             available.slice(0, 10).forEach((s, i) => {
               text += `${i + 1}. <code>${s.account_data}</code>\n`;
-              keyboard.push([{ text: cleanLabel('🗑️ Xóa: ' + s.account_data.substring(0, 25) + '...'), callback_data: 'adm_delstock_' + productId + '_' + s.id }]);
+              keyboard.push([{ text: '🗑️ Xóa: ' + s.account_data.substring(0, 25) + '...', callback_data: 'adm_delstock_' + productId + '_' + s.id }]);
             });
             if (available.length > 10) text += '... và <b>' + (available.length - 10) + '</b> tài khoản khác.\n';
-            keyboard.push([{ text: cleanLabel('🗑️ Xóa TẤT CẢ tồn kho'), callback_data: 'adm_clearstock_' + productId }]);
+            keyboard.push([{ text: '🗑️ Xóa TẤT CẢ tồn kho', callback_data: 'adm_clearstock_' + productId }]);
           } else {
             text += '✖️ Hiện tại kho đang trống!';
           }
-          keyboard.push([{ text: cleanLabel('➕ Nạp thêm stock'), callback_data: 'adm_addstock_' + productId }]);
-          keyboard.push([{ text: cleanLabel('◀️ Quay lại'), callback_data: 'adm_product_' + productId }]);
+          keyboard.push([{ text: '➕ Nạp thêm stock', callback_data: 'adm_addstock_' + productId }]);
+          keyboard.push([{ text: '◀️ Quay lại', callback_data: 'adm_product_' + productId }]);
           return await sendOrEditText(bot, chatId, messageId, text, keyboard);
         }
 
@@ -1352,12 +1470,12 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
             text += '<i>Danh sách tài khoản (bấm để xóa):</i>\n';
             available.slice(0, 10).forEach((s, i) => {
               text += `${i + 1}. <code>${s.account_data}</code>\n`;
-              keyboard.push([{ text: cleanLabel('🗑️ Xóa: ' + s.account_data.substring(0, 25) + '...'), callback_data: 'adm_delstock_' + productId + '_' + s.id }]);
+              keyboard.push([{ text: '🗑️ Xóa: ' + s.account_data.substring(0, 25) + '...', callback_data: 'adm_delstock_' + productId + '_' + s.id }]);
             });
-            keyboard.push([{ text: cleanLabel('🗑️ Xóa TẤT CẢ tồn kho'), callback_data: 'adm_clearstock_' + productId }]);
+            keyboard.push([{ text: '🗑️ Xóa TẤT CẢ tồn kho', callback_data: 'adm_clearstock_' + productId }]);
           }
-          keyboard.push([{ text: cleanLabel('➕ Nạp thêm stock'), callback_data: 'adm_addstock_' + productId }]);
-          keyboard.push([{ text: cleanLabel('◀️ Quay lại'), callback_data: 'adm_product_' + productId }]);
+          keyboard.push([{ text: '➕ Nạp thêm stock', callback_data: 'adm_addstock_' + productId }]);
+          keyboard.push([{ text: '◀️ Quay lại', callback_data: 'adm_product_' + productId }]);
           return await sendOrEditText(bot, chatId, messageId, text, keyboard);
         }
 
@@ -1365,20 +1483,20 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
           const productId = parseInt(data.split('_')[2]);
           await db.clearStock(productId);
           bot.answerCallbackQuery(query.id, { text: 'Đã làm sạch kho!' });
-          return await sendOrEditText(bot, chatId, messageId, `🎯 Đã xóa sạch toàn bộ acc của sản phẩm #${productId}.`, [[{ text: cleanLabel('◀️ Quay lại'), callback_data: 'adm_product_' + productId }]]);
+          return await sendOrEditText(bot, chatId, messageId, `🎯 Đã xóa sạch toàn bộ acc của sản phẩm #${productId}.`, [[{ text: '◀️ Quay lại', callback_data: 'adm_product_' + productId }]]);
         }
 
         if (data.startsWith('adm_delete_')) {
           const productId = parseInt(data.split('_')[2]);
           await db.deleteProduct(productId);
           bot.answerCallbackQuery(query.id, { text: 'Đã xóa sản phẩm!' });
-          return await sendOrEditText(bot, chatId, messageId, `🗑️ Đã xóa hoàn toàn mặt hàng #${productId}.`, [[{ text: cleanLabel('◀️ Về kho hàng'), callback_data: 'adm_back_list' }]]);
+          return await sendOrEditText(bot, chatId, messageId, `🗑️ Đã xóa hoàn toàn mặt hàng #${productId}.`, [[{ text: '◀️ Về kho hàng', callback_data: 'adm_back_list' }]]);
         }
 
         if (data === 'adm_back_list') {
           const products = await db.getAllProducts();
-          const keyboard = products.map(p => [{ text: cleanLabel(`📦 #${p.id} ${p.name} (Kho: ${p.stock_count})`), callback_data: 'adm_product_' + p.id }]);
-          keyboard.push([{ text: cleanLabel('➕ Thêm sản phẩm mới'), callback_data: 'adm_add_product' }]);
+          const keyboard = products.map(p => [{ text: `📦 #${p.id} ${p.name} (Kho: ${p.stock_count})`, callback_data: 'adm_product_' + p.id }]);
+          keyboard.push([{ text: '➕ Thêm sản phẩm mới', callback_data: 'adm_add_product' }]);
           return await sendOrEditText(bot, chatId, messageId, '⚙️ <b>QUẢN TRỊ SẢN PHẨM:</b>', keyboard);
         }
       }
@@ -1389,7 +1507,6 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
     bot.answerCallbackQuery(query.id).catch(() => {});
   });
 
-  // ==================== BỘ NHẬN TIN NHẮN TỪ KHÁCH & ADMIN ====================
   bot.on('message', async (msg) => {
     if (!msg.text || msg.text.startsWith('/') || !isAdmin(msg.from.id)) return;
 
@@ -1418,7 +1535,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
       for (const u of users) {
         bot.sendMessage(u.id, alertMsg, {
           parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: [[{ text: cleanLabel('🛒 Mua Ngay'), callback_data: 'back_main' }]] }
+          reply_markup: { inline_keyboard: [[{ text: '🛒 Mua Ngay', callback_data: 'back_main' }]] }
         }).catch(() => {});
       }
       return;
@@ -1439,7 +1556,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
           await bot.sendMessage(user.id, `📢 <b>THÔNG BÁO TỪ SHOP:</b>\n\n${msg.text}`, {
             parse_mode: 'HTML',
             reply_markup: {
-              inline_keyboard: [[{ text: cleanLabel('🛒 Mở Cửa Hàng'), callback_data: 'back_main' }]]
+              inline_keyboard: [[{ text: '🛒 Mở Cửa Hàng', callback_data: 'back_main' }]]
             }
           });
           sent++;
@@ -1493,7 +1610,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
       for (const u of users) {
         bot.sendMessage(u.id, newProductAlert, {
           parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: [[{ text: cleanLabel('🛒 Mua Ngay'), callback_data: 'back_main' }]] }
+          reply_markup: { inline_keyboard: [[{ text: '🛒 Mua Ngay', callback_data: 'back_main' }]] }
         }).catch(() => {});
       }
       return;
@@ -1585,9 +1702,9 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
 <i>Chọn hình thức thanh toán bên dưới:</i>`;
 
       const keyboard = [
-        [{ text: cleanLabel('⚡ Mua bằng SỐ DƯ VÍ'), callback_data: `paywallet_${editInfo.productId}_${qty}` }],
-        [{ text: cleanLabel('🏦 Quét mã QR NGÂN HÀNG'), callback_data: `paybank_${editInfo.productId}_${qty}` }],
-        [{ text: cleanLabel('◀️ Thay đổi số lượng'), callback_data: `product_${editInfo.productId}` }]
+        [{ text: '⚡ Mua bằng SỐ DƯ VÍ', callback_data: `paywallet_${editInfo.productId}_${qty}` }],
+        [{ text: '🏦 Quét mã QR NGÂN HÀNG', callback_data: `paybank_${editInfo.productId}_${qty}` }],
+        [{ text: '◀️ Thay đổi số lượng', callback_data: `product_${editInfo.productId}` }]
       ];
 
       return bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
@@ -1603,7 +1720,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
     }
   });
 
-  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với giao diện chuẩn gọn gàng!');
+  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với menu cân đối và lệnh /uptime Canvas!');
 }
 
 startBot().catch(console.error);

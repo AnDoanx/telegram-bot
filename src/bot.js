@@ -293,8 +293,8 @@ async function startBot() {
   });
 
   bot.setMyCommands([
-    { command: 'start', description: 'Trang chủ / Home' },
-    { command: 'menu', description: 'Danh sách sản phẩm / Menu' }
+    { command: 'start', description: 'Chọn ngôn ngữ & Khởi động' },
+    { command: 'menu', description: 'Mở cửa hàng / Shop Menu' }
   ]);
 
   config.ADMIN_IDS.forEach(adminId => {
@@ -387,23 +387,37 @@ async function startBot() {
     }
   }, 25000);
 
-  // Lệnh /start & /menu
-  bot.onText(/\/start|\/menu/, async (msg) => {
+  // KHI BẤM /start -> LUÔN HIỆN BẢNG CHỌN NGÔN NGỮ
+  bot.onText(/\/start/, async (msg) => {
+    const userId = msg.from.id;
+    await db.saveUser(userId, getFullName(msg.from), msg.from.username || '');
+
+    const welcomeText = 
+`╭━━━━━━━━━━━━━━━━━━━━━━━━╮
+  🌟 <b>${config.SHOP_NAME || 'CLONE FF GIÁ RẺ'}</b> 🌟
+╰━━━━━━━━━━━━━━━━━━━━━━━━╯
+👋 <b>Xin chào ${getFullName(msg.from)}!</b>
+
+Vui lòng chọn ngôn ngữ để bắt đầu mua sắm:
+<i>Please choose your language to continue:</i>`;
+
+    bot.sendMessage(msg.chat.id, welcomeText, {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: getLanguageKeyboard() }
+    });
+  });
+
+  // KHI BẤM /menu -> VÀO THẲNG SHOP BẰNG NGÔN NGỮ ĐÃ CHỌN
+  bot.onText(/\/menu/, async (msg) => {
     const userId = msg.from.id;
     await db.saveUser(userId, getFullName(msg.from), msg.from.username || '');
 
     const currentLang = await db.getUserLang(userId);
-
-    // Chưa chọn ngôn ngữ -> Bắt chọn trước
     if (!currentLang) {
-      return bot.sendMessage(
-        msg.chat.id,
-        '👋 <b>Chào mừng bạn đến với hệ thống!</b>\nVui lòng chọn ngôn ngữ bên dưới để tiếp tục:\n\n<i>Welcome! Please choose your language below:</i>',
-        {
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: getLanguageKeyboard() }
-        }
-      );
+      return bot.sendMessage(msg.chat.id, '👋 Vui lòng chọn ngôn ngữ trước / Please choose language:', {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: getLanguageKeyboard() }
+      });
     }
 
     const { text, keyboard } = await buildMainMenu(userId);
@@ -486,13 +500,13 @@ async function startBot() {
     const data = query.data;
 
     try {
-      // 1. Cài đặt ngôn ngữ
+      // 1. Cài đặt ngôn ngữ khi bấm chọn cờ
       if (data === 'set_lang_vi' || data === 'set_lang_en') {
         const selectedLang = data === 'set_lang_vi' ? 'vi' : 'en';
         await db.setUserLang(userId, selectedLang);
 
         await bot.answerCallbackQuery(query.id, {
-          text: selectedLang === 'vi' ? 'Đã cài đặt Tiếng Việt thành công!' : 'English selected successfully!'
+          text: selectedLang === 'vi' ? '🇻🇳 Đã chọn Tiếng Việt!' : '🇬🇧 English selected!'
         });
 
         const { text, keyboard } = await buildMainMenu(userId);
@@ -504,7 +518,7 @@ async function startBot() {
         }
       }
 
-      // 2. Mở giao diện đổi ngôn ngữ
+      // 2. Mở giao diện đổi ngôn ngữ từ menu
       if (data === 'change_language') {
         return bot.editMessageText(
           '🌐 <b>Chọn ngôn ngữ hiển thị:</b>\n<i>Please choose your preferred language:</i>',
@@ -1292,7 +1306,7 @@ ${tierText}📝 <b>Mô tả:</b> <i>${product.description || 'Không có mô t�
     }
   });
 
-  console.log('🤖 ' + config.SHOP_NAME + ' đã chạy với tính năng chọn ngôn ngữ & UI mới!');
+  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với logic chọn ngôn ngữ tại /start!');
 }
 
 startBot().catch(console.error);

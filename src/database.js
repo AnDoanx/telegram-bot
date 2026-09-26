@@ -113,6 +113,8 @@ async function initMysql() {
     `);
 
     try { await connection.query(`ALTER TABLE products ADD COLUMN category_id INT DEFAULT 0`); } catch (_) {}
+    try { await connection.query(`ALTER TABLE users ADD COLUMN first_name VARCHAR(255)`); } catch (_) {}
+    try { await connection.query(`ALTER TABLE users ADD COLUMN username VARCHAR(255)`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN balance BIGINT DEFAULT 0`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN lang VARCHAR(10) DEFAULT 'vi'`); } catch (_) {}
     try { await connection.query(`ALTER TABLE orders ADD COLUMN chat_id BIGINT`); } catch (_) {}
@@ -187,15 +189,18 @@ function initSqlite() {
     CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
   `);
 
-  // Tự động nâng cấp bảng cũ nếu thiếu cột
+  // Bổ sung đầy đủ tất cả các cột nếu database cũ bị thiếu
+  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN first_name TEXT;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN username TEXT;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'vi';`); } catch (_) {}
+
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN chat_id INTEGER;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN content TEXT;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN total_price INTEGER DEFAULT 0;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN delivered_data TEXT;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE products ADD COLUMN category_id INTEGER DEFAULT 0;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'vi';`); } catch (_) {}
 }
 
 async function initDB() {
@@ -367,7 +372,6 @@ async function updateOrder(orderId, stockId, status, deliveredData = null) {
   }
 }
 
-// Bọc an toàn: Dù DB thiếu cột nào cũng không bị sập bot
 async function getPendingOrders() {
   try {
     const rows = await queryAll(`SELECT * FROM orders WHERE status = 'pending'`);
@@ -412,30 +416,42 @@ async function getOrdersByUser(userId) {
   }
 }
 
+// Hàm lưu User được bọc an toàn: tự bắt trường hợp bảng cũ
 async function saveUser(id, firstName, username) {
-  if (mode === 'mysql') {
-    await queryRun(
-      'INSERT INTO users (id, first_name, username) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE first_name = ?, username = ?',
-      [id, firstName, username, firstName, username]
-    );
-  } else {
-    await queryRun(
-      `INSERT INTO users (id, first_name, username) VALUES (?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET first_name = excluded.first_name, username = excluded.username`,
-      [id, firstName, username]
-    );
+  try {
+    if (mode === 'mysql') {
+      await queryRun(
+        'INSERT INTO users (id, first_name, username) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE first_name = ?, username = ?',
+        [id, firstName || '', username || '', firstName || '', username || '']
+      );
+    } else {
+      await queryRun(
+        `INSERT INTO users (id, first_name, username) VALUES (?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET first_name = excluded.first_name, username = excluded.username`,
+        [id, firstName || '', username || '']
+      );
+    }
+  } catch (e) {
+    // Nếu bảng cũ dùng tên cột khác (ví dụ: name)
+    try {
+      await queryRun(`INSERT OR REPLACE INTO users (id) VALUES (?)`, [id]);
+    } catch (_) {}
   }
 }
 
 async function getAllUsers() {
-  const rows = await queryAll('SELECT * FROM users');
-  return rows.map((row) => ({
-    id: row.id,
-    first_name: row.first_name || '',
-    username: row.username || '',
-    balance: parseInt(row.balance, 10) || 0,
-    lang: row.lang || 'vi'
-  }));
+  try {
+    const rows = await queryAll('SELECT * FROM users');
+    return rows.map((row) => ({
+      id: row.id,
+      first_name: row.first_name || row.name || '',
+      username: row.username || '',
+      balance: parseInt(row.balance, 10) || 0,
+      lang: row.lang || 'vi'
+    }));
+  } catch (e) {
+    return [];
+  }
 }
 
 async function updateProduct(id, name, price, description) {
@@ -502,10 +518,9 @@ async function getRevenue() {
 async function getRecentOrders(limit = 20) {
   try {
     const rows = await queryAll(
-      `SELECT o.*, p.name as product_name, u.first_name
+      `SELECT o.*, p.name as product_name
        FROM orders o
        JOIN products p ON o.product_id = p.id
-       LEFT JOIN users u ON o.user_id = u.id
        ORDER BY o.id DESC
        LIMIT ?`,
       [limit]
@@ -517,7 +532,7 @@ async function getRecentOrders(limit = 20) {
       product_name: row.product_name,
       total_price: parseInt(row.total_price, 10) || 0,
       quantity: parseInt(row.quantity, 10) || 1,
-      user_name: row.first_name || 'Khách',
+      user_name: 'Khách',
       created_at: row.created_at
     }));
   } catch (e) {
@@ -535,9 +550,13 @@ async function keepAlive() {
 }
 
 async function getUserBalance(userId) {
-  const rows = await queryAll('SELECT balance FROM users WHERE id = ?', [userId]);
-  if (!rows || rows.length === 0) return 0;
-  return parseInt(rows[0].balance, 10) || 0;
+  try {
+    const rows = await queryAll('SELECT balance FROM users WHERE id = ?', [userId]);
+    if (!rows || rows.length === 0) return 0;
+    return parseInt(rows[0].balance, 10) || 0;
+  } catch (e) {
+    return 0;
+  }
 }
 
 async function setUserBalance(userId, amount) {
@@ -583,6 +602,28 @@ async function updateDepositStatus(depositId, status) {
   await queryRun('UPDATE deposits SET status = ? WHERE id = ?', [status, depositId]);
 }
 
+async function getUserDepositStats(userId) {
+  try {
+    const rowsTotal = await queryAll(
+      "SELECT COALESCE(SUM(amount), 0) AS total FROM deposits WHERE user_id = ? AND status = 'completed'",
+      [userId]
+    );
+    const totalDeposit = parseInt(rowsTotal[0]?.total, 10) || 0;
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const rowsMonth = await queryAll(
+      "SELECT COALESCE(SUM(amount), 0) AS total_month FROM deposits WHERE user_id = ? AND status = 'completed' AND created_at >= ?",
+      [userId, startOfMonth]
+    );
+    const monthDeposit = parseInt(rowsMonth[0]?.total_month, 10) || 0;
+
+    return { totalDeposit, monthDeposit };
+  } catch (e) {
+    return { totalDeposit: 0, monthDeposit: 0 };
+  }
+}
+
 module.exports = {
   initDB,
   getAllCategories,
@@ -619,5 +660,6 @@ module.exports = {
   deductBalance,
   createDeposit,
   getPendingDeposits,
-  updateDepositStatus
+  updateDepositStatus,
+  getUserDepositStats
 };

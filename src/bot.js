@@ -76,7 +76,6 @@ function generateBalanceAlertCard(userId, amount, oldBal, newBal, code) {
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
 
-  // Nền Dark Fintech sang trọng
   const grad = ctx.createLinearGradient(0, 0, width, height);
   grad.addColorStop(0, '#0a0f1d');
   grad.addColorStop(0.5, '#0f172a');
@@ -84,7 +83,6 @@ function generateBalanceAlertCard(userId, amount, oldBal, newBal, code) {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
 
-  // Viền neon xanh lá tượng trưng cho dòng tiền vào
   ctx.strokeStyle = '#10b981';
   ctx.lineWidth = 3;
   ctx.strokeRect(15, 15, width - 30, height - 30);
@@ -93,7 +91,6 @@ function generateBalanceAlertCard(userId, amount, oldBal, newBal, code) {
   ctx.lineWidth = 1;
   ctx.strokeRect(25, 25, width - 50, height - 50);
 
-  // Header thương hiệu
   ctx.fillStyle = '#38bdf8';
   ctx.font = 'bold 22px sans-serif';
   ctx.textAlign = 'left';
@@ -104,7 +101,6 @@ function generateBalanceAlertCard(userId, amount, oldBal, newBal, code) {
   ctx.textAlign = 'right';
   ctx.fillText('BIẾN ĐỘNG SỐ DƯ (+)', width - 45, 65);
 
-  // Line kẻ phân cách
   ctx.strokeStyle = '#1e293b';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -112,7 +108,6 @@ function generateBalanceAlertCard(userId, amount, oldBal, newBal, code) {
   ctx.lineTo(width - 45, 85);
   ctx.stroke();
 
-  // Khối thông báo số tiền được cộng (+...)
   ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
   ctx.fillRect(45, 105, width - 90, 115);
   ctx.strokeStyle = 'rgba(16, 185, 129, 0.3)';
@@ -128,7 +123,6 @@ function generateBalanceAlertCard(userId, amount, oldBal, newBal, code) {
   ctx.font = 'bold 42px monospace';
   ctx.fillText(`+${formatPrice(amount)}`, width / 2, 188);
 
-  // Chi tiết giao dịch
   ctx.textAlign = 'left';
   function drawRow(y, label, val, isBold = false, valColor = '#f8fafc') {
     ctx.fillStyle = '#94a3b8';
@@ -147,7 +141,6 @@ function generateBalanceAlertCard(userId, amount, oldBal, newBal, code) {
   drawRow(340, 'Thời gian thực hiện:', new Date().toLocaleString('vi-VN'));
   drawRow(380, 'Số dư ban đầu:', formatPrice(oldBal));
 
-  // Line kết thúc trước số dư mới
   ctx.setLineDash([5, 5]);
   ctx.strokeStyle = '#334155';
   ctx.beginPath();
@@ -156,10 +149,8 @@ function generateBalanceAlertCard(userId, amount, oldBal, newBal, code) {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Hàng số dư ví mới
   drawRow(445, 'SỐ DƯ KHẢ DỤNG MỚI:', formatPrice(newBal), true, '#4ade80');
 
-  // Footer ghi chú
   ctx.fillStyle = '#64748b';
   ctx.font = '12px sans-serif';
   ctx.textAlign = 'center';
@@ -665,6 +656,229 @@ function generateUptimeImage() {
   return canvas.toBuffer('image/png');
 }
 
+// ==================== CANVAS: BÁO CÁO DOANH THU ====================
+function generateRevenueCard(stats, products, totalStock) {
+  const width = 800;
+  const height = 520;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  const grad = ctx.createLinearGradient(0, 0, width, height);
+  grad.addColorStop(0, '#0a0f1d');
+  grad.addColorStop(0.5, '#0f172a');
+  grad.addColorStop(1, '#020617');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = '#facc15';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(15, 15, width - 30, height - 30);
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(25, 25, width - 50, height - 50);
+
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`⚡ ${(config.SHOP_NAME || 'SYSTEM').toUpperCase()} REPORT`, 45, 65);
+
+  ctx.fillStyle = '#facc15';
+  ctx.font = 'bold 15px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText('FINANCIAL EXECUTIVE', width - 45, 65);
+
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(45, 85);
+  ctx.lineTo(width - 45, 85);
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+  ctx.fillRect(45, 105, width - 90, 120);
+  ctx.strokeStyle = 'rgba(16, 185, 129, 0.35)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(45, 105, width - 90, 120);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('TỔNG DOANH THU THỰC NHẬN', width / 2, 140);
+
+  ctx.fillStyle = '#10b981';
+  ctx.font = 'bold 44px monospace';
+  ctx.fillText(formatPrice(stats.total_revenue || 0), width / 2, 192);
+
+  const totalOrders = stats.total_orders || 0;
+  const aov = totalOrders > 0 ? Math.round((stats.total_revenue || 0) / totalOrders) : 0;
+  const colW = (width - 90 - 30) / 3;
+
+  function drawStatBox(x, y, w, title, val, color) {
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.6)';
+    ctx.fillRect(x, y, w, 85);
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, 85);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(title, x + 16, y + 30);
+
+    ctx.fillStyle = color;
+    ctx.font = 'bold 20px monospace';
+    ctx.fillText(val, x + 16, y + 64);
+  }
+
+  drawStatBox(45, 245, colW, '📦 ĐƠN THÀNH CÔNG', `${totalOrders} đơn`, '#38bdf8');
+  drawStatBox(45 + colW + 15, 245, colW, '📊 TRUNG BÌNH (AOV)', formatPrice(aov), '#facc15');
+  drawStatBox(45 + (colW + 15) * 2, 245, colW, '🎯 KHO KHẢ DỤNG', `${totalStock} acc`, '#4ade80');
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+  ctx.fillRect(45, 350, width - 90, 75);
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(45, 350, width - 90, 75);
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '14px sans-serif';
+  ctx.fillText('Đa dạng mặt hàng:', 65, 380);
+  ctx.fillText('Thời điểm chốt số:', 65, 408);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = 'bold 15px monospace';
+  ctx.fillText(`${products.length} danh mục / sản phẩm`, width - 65, 380);
+  ctx.fillText(new Date().toLocaleString('vi-VN'), width - 65, 408);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#64748b';
+  ctx.font = '12px monospace';
+  ctx.fillText('CONFIDENTIAL • BÁO CÁO NỘI BỘ DÀNH CHO ADMIN • DỮ LIỆU THỜI GIAN THỰC', width / 2, 480);
+
+  return canvas.toBuffer('image/png');
+}
+
+// ==================== CANVAS: BÁO CÁO TỒN KHO ====================
+function generateStatsCard(products, totalStock) {
+  const width = 850;
+  const displayLimit = Math.min(products.length, 10);
+  const rowHeight = 44;
+  const baseHeight = 310;
+  const height = Math.max(500, baseHeight + displayLimit * rowHeight);
+
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  const grad = ctx.createLinearGradient(0, 0, width, height);
+  grad.addColorStop(0, '#090d16');
+  grad.addColorStop(0.5, '#0f172a');
+  grad.addColorStop(1, '#020617');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(15, 15, width - 30, height - 30);
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(25, 25, width - 50, height - 50);
+
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 24px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`📦 INVENTORY CONTROL CENTER`, 45, 65);
+
+  ctx.fillStyle = '#4ade80';
+  ctx.font = 'bold 16px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(`TỔNG TỒN: ${totalStock} ACC`, width - 45, 65);
+
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(45, 85);
+  ctx.lineTo(width - 45, 85);
+  ctx.stroke();
+
+  let lowStockCount = 0;
+  let emptyStockCount = 0;
+  products.forEach(p => {
+    if (p.stock_count === 0) emptyStockCount++;
+    else if (p.stock_count <= 3) lowStockCount++;
+  });
+
+  const bannerColor = emptyStockCount > 0 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.1)';
+  const bannerBorder = emptyStockCount > 0 ? '#ef4444' : '#10b981';
+  ctx.fillStyle = bannerColor;
+  ctx.fillRect(45, 100, width - 90, 50);
+  ctx.strokeStyle = bannerBorder;
+  ctx.strokeRect(45, 100, width - 90, 50);
+
+  ctx.fillStyle = emptyStockCount > 0 ? '#f87171' : '#4ade80';
+  ctx.font = 'bold 15px sans-serif';
+  ctx.textAlign = 'center';
+  const alertText = emptyStockCount > 0 
+    ? `⚠️ CẢNH BÁO: Có ${emptyStockCount} mặt hàng HẾT HÀNG và ${lowStockCount} mặt hàng sắp hết!`
+    : `✅ TÌNH TRẠNG KHO HÀNG ỔN ĐỊNH • CÒN KHẢ DỤNG ${totalStock} ACC`;
+  ctx.fillText(alertText, width / 2, 131);
+
+  let startY = 175;
+  if (products.length === 0) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = 'italic 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Chưa có sản phẩm nào trong kho dữ liệu!', width / 2, 220);
+  } else {
+    for (let i = 0; i < displayLimit; i++) {
+      const p = products[i];
+      const rowY = startY + i * rowHeight;
+
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(30, 41, 59, 0.4)' : 'rgba(15, 23, 42, 0.5)';
+      ctx.fillRect(45, rowY, width - 90, 36);
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.textAlign = 'left';
+      let pName = p.name;
+      if (pName.length > 28) pName = pName.substring(0, 27) + '...';
+      ctx.fillText(`${i + 1}. ${pName}`, 60, rowY + 23);
+
+      let badgeTxt = '🟢 CÒN HÀNG';
+      let badgeCol = '#10b981';
+      if (p.stock_count === 0) {
+        badgeTxt = '🔴 HẾT HÀNG';
+        badgeCol = '#ef4444';
+      } else if (p.stock_count <= 3) {
+        badgeTxt = '🟡 SẮP HẾT';
+        badgeCol = '#facc15';
+      }
+
+      ctx.fillStyle = badgeCol;
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(badgeTxt, width / 2 + 60, rowY + 23);
+
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 16px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${p.stock_count} acc`, width - 60, rowY + 24);
+    }
+  }
+
+  ctx.fillStyle = '#64748b';
+  ctx.font = '12px monospace';
+  ctx.textAlign = 'center';
+  const remainCount = products.length - displayLimit;
+  const extraText = remainCount > 0 ? `... và ${remainCount} sản phẩm khác • ` : '';
+  ctx.fillText(`${extraText}Kiểm tra lúc: ${new Date().toLocaleTimeString('vi-VN')} • Real-time Stock Monitor`, width / 2, height - 30);
+
+  return canvas.toBuffer('image/png');
+}
+
 async function sendOrEditText(bot, chatId, messageId, text, keyboard) {
   if (messageId) {
     try {
@@ -977,8 +1191,8 @@ async function startBot() {
       { command: 'categories', description: '📁 Quản lý danh mục' },
       { command: 'products', description: '⚙️ Quản trị sản phẩm' },
       { command: 'orders', description: '📦 Danh sách đơn hàng' },
-      { command: 'revenue', description: '📈 Thống kê doanh thu' },
-      { command: 'stats', description: '📊 Kiểm tra tồn kho' },
+      { command: 'revenue', description: '📈 Thống kê doanh thu Canvas' },
+      { command: 'stats', description: '📊 Kiểm tra tồn kho Canvas' },
       { command: 'users', description: '👥 Quản lý thành viên' },
       { command: 'broadcast', description: '📣 Thông báo shop' },
       { command: 'setmoney', description: '💵 Chỉnh sửa số dư' }
@@ -1045,12 +1259,10 @@ async function startBot() {
         pendingDeposits.delete(depositId);
         await db.updateDepositStatus(depositId, 'completed');
 
-        // Lấy số dư cũ trước khi cộng
         const oldBal = await db.getUserBalance(dep.userId);
         await db.addMoney(dep.userId, dep.amount);
         const newBal = await db.getUserBalance(dep.userId);
 
-        // Render Thẻ Biến Động Số Dư (BDSD) bằng Canvas
         try {
           const alertCardBuffer = generateBalanceAlertCard(dep.userId, dep.amount, oldBal, newBal, dep.content);
           await bot.sendPhoto(dep.userId, alertCardBuffer, {
@@ -1118,41 +1330,39 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
 
   bot.onText(/\/revenue/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
-    const stats = await db.getRevenue();
-    const products = await db.getAllProducts();
-    let totalStock = 0;
-    products.forEach(p => totalStock += p.stock_count);
+    try {
+      const stats = await db.getRevenue();
+      const products = await db.getAllProducts();
+      let totalStock = 0;
+      products.forEach(p => totalStock += p.stock_count);
 
-    const text = 
-`╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
-  📈 <b>BÁO CÁO DOANH THU</b>
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯
- ├ 💵 <b>Doanh thu:</b> <code>${formatPrice(stats.total_revenue)}</code>
- ├ ✅ <b>Thành công:</b> <code>${stats.total_orders} đơn</code>
- ├ 📦 <b>Mặt hàng:</b> <code>${products.length} loại</code>
- ╰ 🎯 <b>Tồn kho:</b> <code>${totalStock} acc</code>
-─────────────────────────
-💡 <i>Dữ liệu trích xuất từ database.</i>`;
-
-    await sendOrEditText(bot, msg.chat.id, null, text, []);
+      const imgBuffer = generateRevenueCard(stats, products, totalStock);
+      await bot.sendPhoto(msg.chat.id, imgBuffer, {
+        caption: `📈 <b>BÁO CÁO DOANH THU HỆ THỐNG</b>\n<i>Được kết xuất tự động từ cơ sở dữ liệu lúc ${new Date().toLocaleTimeString('vi-VN')}.</i>`,
+        parse_mode: 'HTML'
+      });
+    } catch (err) {
+      console.log('Lỗi vẽ canvas revenue:', err.message);
+      bot.sendMessage(msg.chat.id, '❌ Không thể kết xuất thẻ doanh thu!');
+    }
   });
 
   bot.onText(/\/stats/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
-    const products = await db.getAllProducts();
-    let text = 
-`╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
-  📊 <b>BÁO CÁO TỒN KHO</b>
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n`;
-    let total = 0;
-    products.forEach(p => {
-      const status = p.stock_count > 0 ? '🟢' : '🔴';
-      text += ` ${status} <b>${p.name}:</b> <code>${p.stock_count}</code> acc\n`;
-      total += p.stock_count;
-    });
-    text += `─────────────────────────\n🎯 <b>Tổng kho:</b> <code>${total}</code> acc`;
+    try {
+      const products = await db.getAllProducts();
+      let totalStock = 0;
+      products.forEach(p => totalStock += p.stock_count);
 
-    await sendOrEditText(bot, msg.chat.id, null, text, []);
+      const imgBuffer = generateStatsCard(products, totalStock);
+      await bot.sendPhoto(msg.chat.id, imgBuffer, {
+        caption: `📊 <b>BÁO CÁO TỒN KHO THỰC TẾ</b>\n<i>Trực quan hóa kho dữ liệu thời gian thực.</i>`,
+        parse_mode: 'HTML'
+      });
+    } catch (err) {
+      console.log('Lỗi vẽ canvas stats:', err.message);
+      bot.sendMessage(msg.chat.id, '❌ Không thể kết xuất thẻ tồn kho!');
+    }
   });
 
   bot.onText(/\/categories/, async (msg) => {
@@ -2228,7 +2438,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
     }
   });
 
-  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với bộ Canvas toàn diện (Biến động số dư, Podium Top nạp, Thẻ VIP, Hóa đơn)!');
+  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với bộ Canvas toàn diện (Biến động số dư, Podium Top nạp, Thẻ VIP, Hóa đơn, Doanh thu, Tồn kho)!');
 }
 
 startBot().catch(console.error);

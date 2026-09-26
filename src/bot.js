@@ -30,10 +30,11 @@ const MESSAGES = {
     month_deposit: '💰 Nạp tháng:',
     balance: '🏦 Số dư ví:',
     choose_category: '📁 <b>DANH MỤC THƯ MỤC SẢN PHẨM:</b>\n<i>(Vui lòng chọn thư mục để xem các mặt hàng)</i>',
-    btn_deposit: '💳 Nạp tiền vào ví',
-    btn_profile: '👤 Hồ sơ cá nhân',
-    btn_history: '📜 Lịch sử mua hàng',
-    btn_support: '💬 Liên hệ Admin',
+    btn_deposit: '💳 Nạp tiền',
+    btn_top: '🏆 Top Nạp',
+    btn_profile: '👤 Hồ sơ',
+    btn_history: '📜 Lịch sử mua',
+    btn_support: '💬 Hỗ trợ Admin',
     btn_change_lang: '🌐 Đổi ngôn ngữ',
     btn_back_cat: '◀️ Quay lại danh mục',
     btn_back_home: '◀️ Quay lại trang chủ',
@@ -53,11 +54,12 @@ const MESSAGES = {
     month_deposit: '💰 Month Deposit:',
     balance: '🏦 Wallet Balance:',
     choose_category: '📁 <b>PRODUCT CATEGORIES:</b>\n<i>(Please select a category below to view items)</i>',
-    btn_deposit: '💳 Deposit Funds',
+    btn_deposit: '💳 Deposit',
+    btn_top: '🏆 Top Donors',
     btn_profile: '👤 My Profile',
-    btn_history: '📜 Purchase History',
+    btn_history: '📜 History',
     btn_support: '💬 Contact Admin',
-    btn_change_lang: '🌐 Change Language',
+    btn_change_lang: '🌐 Language',
     btn_back_cat: '◀️ Back to Categories',
     btn_back_home: '◀️ Back to Home',
     stock_in: 'In Stock',
@@ -170,14 +172,12 @@ function getQRUrl(amount, content) {
   return `https://img.vietqr.io/image/${config.BANK_BIN}-${config.BANK_ACCOUNT}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(content)}`;
 }
 
-// Hàm gửi tin nhắn tới toàn bộ Admin
 function notifyAllAdmins(bot, message) {
   config.ADMIN_IDS.forEach(id => {
     bot.sendMessage(id, message, { parse_mode: 'HTML' }).catch(() => {});
   });
 }
 
-// Gửi thông báo đến toàn bộ người dùng
 async function broadcastToAllUsers(bot, textContent) {
   const users = await db.getAllUsers();
   for (const u of users) {
@@ -276,7 +276,7 @@ ${t.choose_category}`;
   const categories = await db.getAllCategories();
   const keyboard = [];
 
-  // CHỈ HIỆN DUY NHẤT THƯ MỤC
+  // CHỈ HIỆN DUY NHẤT CÁC THƯ MỤC
   if (categories.length > 0) {
     categories.forEach(c => {
       keyboard.push([{
@@ -291,12 +291,20 @@ ${t.choose_category}`;
     }]);
   }
 
+  // HÀNG 1: Nạp tiền & Top Nạp (BXH)
   keyboard.push([
     { text: wideInlineLabel(t.btn_deposit), callback_data: 'deposit_menu' },
-    { text: wideInlineLabel(t.btn_profile), callback_data: 'main_profile' }
+    { text: wideInlineLabel(t.btn_top), callback_data: 'view_top_deposits' }
   ]);
+
+  // HÀNG 2: Hồ sơ & Lịch sử
   keyboard.push([
-    { text: wideInlineLabel(t.btn_history), callback_data: 'main_history' },
+    { text: wideInlineLabel(t.btn_profile), callback_data: 'main_profile' },
+    { text: wideInlineLabel(t.btn_history), callback_data: 'main_history' }
+  ]);
+
+  // HÀNG 3: Đổi ngôn ngữ
+  keyboard.push([
     { text: wideInlineLabel(t.btn_change_lang), callback_data: 'change_language' }
   ]);
 
@@ -369,7 +377,6 @@ async function startBot() {
     const now = Date.now();
     const transactions = await sepay.getTransactions();
 
-    // 1. Quét thanh toán mua hàng bằng QR Ngân hàng
     for (const [orderId, order] of pendingOrders) {
       if (processingOrders.has(orderId)) continue;
       if (now - order.createdAt > ORDER_TIMEOUT_MS) {
@@ -404,7 +411,6 @@ async function startBot() {
       processingOrders.delete(orderId);
     }
 
-    // 2. Quét nạp tiền ví qua SePay
     for (const [depositId, dep] of pendingDeposits) {
       if (now - dep.createdAt > ORDER_TIMEOUT_MS) {
         pendingDeposits.delete(depositId);
@@ -424,7 +430,6 @@ async function startBot() {
         await db.addMoney(dep.userId, dep.amount);
         const newBal = await db.getUserBalance(dep.userId);
 
-        // Báo cho khách
         bot.sendMessage(dep.userId, 
 `╭━━━━━━━━━━━━━━━━━━━━━━━━╮
   🎉 <b>NẠP TIỀN THÀNH CÔNG!</b>
@@ -432,7 +437,6 @@ async function startBot() {
  ├ ➕ <b>Số tiền nạp:</b>  <code>+${formatPrice(dep.amount)}</code>
  ╰ 💳 <b>Số dư ví mới:</b> <code>${formatPrice(newBal)}</code>`, { parse_mode: 'HTML' });
 
-        // THÔNG BÁO VỀ ADMIN KHI NẠP THÀNH CÔNG
         const adminDepositNotice = 
 `💰 <b>THÔNG BÁO NẠP TIỀN THÀNH CÔNG</b>
 ──────────────────────────
@@ -600,7 +604,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
       reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('◀️ Quay lại Hồ sơ'), callback_data: 'main_profile' }]] }
     });
 
-    // THÔNG BÁO VỀ ADMIN KHI KHÁCH TẠO LỆNH NẠP TIỀN
     const adminMsg = 
 `⚡ <b>CÓ KHÁCH TẠO LỆNH NẠP TIỀN</b>
 ──────────────────────────
@@ -643,6 +646,49 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           message_id: query.message.message_id,
           parse_mode: 'HTML',
           reply_markup: { inline_keyboard: getLanguageKeyboard() }
+        });
+      }
+
+      // ==================== BẢNG XẾP HẠNG TOP NẠP ====================
+      if (data === 'view_top_deposits') {
+        let topList = [];
+        if (db.getTopDeposits) {
+          topList = await db.getTopDeposits(10);
+        }
+
+        let text = 
+`╭━━━━━━━━━━━━━━━━━━━━━━━━╮
+  🏆 <b>BẢNG VINH DANH TOP NẠP TIỀN</b> 🏆
+╰━━━━━━━━━━━━━━━━━━━━━━━━╯
+<i>Cảm ơn sự đồng hành và ủng hộ to lớn từ các bạn!</i>
+──────────────────────────\n`;
+
+        if (topList.length === 0) {
+          text += `<i>Chưa có người dùng nào nạp tiền vào shop!</i>`;
+        } else {
+          topList.forEach((u, idx) => {
+            let medal = '🔹';
+            if (idx === 0) medal = '🥇';
+            else if (idx === 1) medal = '🥈';
+            else if (idx === 2) medal = '🥉';
+
+            const userTag = u.username ? `@${u.username}` : `<code>${u.name}</code>`;
+            text += `${medal} <b>Top ${idx + 1}:</b> ${userTag}\n   ╰ 💰 <b>Tổng nạp:</b> <code>${formatPrice(u.total)}</code>\n\n`;
+          });
+        }
+
+        text += `──────────────────────────\n💡 <i>Nạp tiền ngay để thăng hạng và vinh danh trên BXH!</i>`;
+
+        return bot.editMessageText(text, {
+          chat_id: chatId,
+          message_id: query.message.message_id,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: wideInlineLabel('💳 Nạp tiền ngay'), callback_data: 'deposit_menu' }],
+              [{ text: wideInlineLabel('◀️ Quay lại trang chủ'), callback_data: 'back_main' }]
+            ]
+          }
         });
       }
 
@@ -828,7 +874,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           }
         });
 
-        // THÔNG BÁO VỀ ADMIN KHI KHÁCH BẤM THANH TOÁN QR NGÂN HÀNG
         const adminOrderAlert = 
 `⚡ <b>CÓ KHÁCH TẠO ĐƠN CHỜ QUÉT QR</b>
 ──────────────────────────
@@ -930,7 +975,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           [{ text: wideInlineLabel('💵 20.000đ'), callback_data: 'dep_amt_20000' }, { text: wideInlineLabel('💵 50.000đ'), callback_data: 'dep_amt_50000' }],
           [{ text: wideInlineLabel('💵 100.000đ'), callback_data: 'dep_amt_100000' }, { text: wideInlineLabel('💵 200.000đ'), callback_data: 'dep_amt_200000' }],
           [{ text: wideInlineLabel('💵 500.000đ'), callback_data: 'dep_amt_500000' }, { text: wideInlineLabel('✏️ Tự nhập số tiền'), callback_data: 'dep_custom' }],
-          [{ text: wideInlineLabel('◀️ Quay lại Hồ sơ'), callback_data: 'main_profile' }]
+          [{ text: wideInlineLabel('◀️ Quay lại'), callback_data: 'back_main' }]
         ];
         return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
       }
@@ -1321,7 +1366,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
   bot.on('message', async (msg) => {
     if (!msg.text || msg.text.startsWith('/') || !isAdmin(msg.from.id)) return;
 
-    // Nạp stock -> Tự động báo RESTOCK
     const pid = waitingStock.get(msg.from.id);
     if (pid) {
       const accs = msg.text.split('\n').filter(a => a.trim());
@@ -1349,7 +1393,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     const editInfo = waitingEdit.get(msg.from.id);
     if (!editInfo) return;
 
-    // Tạo thư mục mới
     if (editInfo.field === 'new_category') {
       const parts = msg.text.split('|').map(s => s.trim());
       const name = parts[0];
@@ -1361,7 +1404,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
       return bot.sendMessage(msg.chat.id, `✅ Đã tạo thư mục: <b>${name}</b> thành công!\nGõ /categories để kiểm tra.`, { parse_mode: 'HTML' });
     }
 
-    // Thêm SP mới -> Tự động báo HÀNG MỚI
     if (editInfo.field === 'new_product') {
       const parts = msg.text.split('|').map(s => s.trim());
       const name = parts[0];
@@ -1493,7 +1535,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     }
   });
 
-  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy!');
+  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với BXH Top Nạp!');
 }
 
 startBot().catch(console.error);

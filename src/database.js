@@ -75,6 +75,7 @@ async function initMysql() {
         content TEXT,
         quantity INT DEFAULT 1,
         total_price INT,
+        delivered_data TEXT,
         created_at BIGINT,
         INDEX idx_user_status (user_id, status),
         INDEX idx_status (status)
@@ -97,13 +98,13 @@ async function initMysql() {
         content VARCHAR(255) NOT NULL,
         status VARCHAR(50) DEFAULT 'pending',
         created_at BIGINT,
-        INDEX idx_dep_status (status)
+        INDEX idx_deposit_user (user_id),
+        INDEX idx_deposit_status (status)
       )
     `);
 
-    try {
-      await connection.query(`ALTER TABLE users ADD COLUMN balance BIGINT DEFAULT 0`);
-    } catch (_) {}
+    try { await connection.query(`ALTER TABLE users ADD COLUMN balance BIGINT DEFAULT 0`); } catch (_) {}
+    try { await connection.query(`ALTER TABLE orders ADD COLUMN delivered_data TEXT`); } catch (_) {}
   } finally {
     connection.release();
   }
@@ -141,6 +142,7 @@ function initSqlite() {
       content TEXT,
       quantity INTEGER DEFAULT 1,
       total_price INTEGER,
+      delivered_data TEXT,
       created_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders(user_id, status);
@@ -160,12 +162,11 @@ function initSqlite() {
       status TEXT DEFAULT 'pending',
       created_at INTEGER
     );
-    CREATE INDEX IF NOT EXISTS idx_dep_status ON deposits(status);
+    CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
   `);
 
-  try {
-    sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`);
-  } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN delivered_data TEXT;`); } catch (_) {}
 }
 
 async function initDB() {
@@ -180,7 +181,7 @@ async function initDB() {
       return;
     } catch (err) {
       if (onlyMysql) {
-        console.error('❌ MySQL bắt buộc (DB_MODE=mysql) nhưng không kết nối được:', err.message);
+        console.error('❌ MySQL bắt buộc nhưng không kết nối được:', err.message);
         throw err;
       }
       if (pool) {
@@ -201,10 +202,7 @@ function parsePriceTiersJson(raw) {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) return null;
     const normalized = parsed
-      .map((t) => ({
-        min: parseInt(t.min, 10),
-        price: parseInt(t.price, 10)
-      }))
+      .map((t) => ({ min: parseInt(t.min, 10), price: parseInt(t.price, 10) }))
       .filter((t) => !isNaN(t.min) && t.min >= 1 && !isNaN(t.price) && t.price >= 0);
     if (!normalized.length) return null;
     normalized.sort((a, b) => a.min - b.min);
@@ -316,8 +314,23 @@ async function createOrder(userId, productId, chatId, content, quantity, totalPr
   return { lastInsertRowid: result.insertId, createdAt };
 }
 
-async function updateOrder(orderId, stockId, status) {
-  await queryRun('UPDATE orders SET stock_id = ?, status = ? WHERE id = ?', [stockId, status, orderId]);
+async function updateOrder(orderId, stockId, status, deliveredData = null) {
+  if (deliveredData !== null) {
+    await queryRun('UPDATE orders SET stock_id = ?, status = ?, delivered_data = ? WHERE id = ?', [stockId, status, deliveredData, orderId]);
+  } else {
+    await queryRun('UPDATE orders SET stock_id = ?, status = ? WHERE id = ?', [stockId, status, orderId]);
+  }
+}
+
+async function getOrderById(orderId) {
+  const rows = await queryAll(
+    `SELECT o.*, p.name as product_name 
+     FROM orders o
+     JOIN products p ON o.product_id = p.id
+     WHERE o.id = ?`,
+    [orderId]
+  );
+  return rows[0] || null;
 }
 
 async function getPendingOrders() {
@@ -340,7 +353,7 @@ async function getPendingOrders() {
 
 async function getOrdersByUser(userId) {
   const rows = await queryAll(
-    `SELECT o.id, o.status, p.name as product_name, o.total_price
+    `SELECT o.id, o.status, p.name as product_name, o.total_price, o.quantity, o.created_at, o.delivered_data
      FROM orders o
      JOIN products p ON o.product_id = p.id
      WHERE o.user_id = ?
@@ -351,7 +364,10 @@ async function getOrdersByUser(userId) {
     id: row.id,
     status: row.status,
     product_name: row.product_name,
-    total_price: row.total_price || 0
+    total_price: row.total_price || 0,
+    quantity: row.quantity || 1,
+    created_at: row.created_at,
+    delivered_data: row.delivered_data
   }));
 }
 
@@ -401,7 +417,7 @@ async function getStockByProduct(productId) {
 
 async function getOrderHistory(userId) {
   const rows = await queryAll(
-    `SELECT o.id, o.status, p.name, o.total_price, o.quantity, o.created_at
+    `SELECT o.id, o.status, p.name as product_name, o.total_price, o.quantity, o.created_at, o.delivered_data
      FROM orders o
      JOIN products p ON o.product_id = p.id
      WHERE o.user_id = ? AND o.status IN ('completed', 'pending', 'expired', 'cancelled')
@@ -412,10 +428,11 @@ async function getOrderHistory(userId) {
   return rows.map((row) => ({
     id: row.id,
     status: row.status,
-    product_name: row.name,
+    product_name: row.product_name,
     total_price: row.total_price,
     quantity: row.quantity,
-    created_at: row.created_at
+    created_at: row.created_at,
+    delivered_data: row.delivered_data
   }));
 }
 
@@ -466,6 +483,7 @@ async function keepAlive() {
   }
 }
 
+// Xử lý số dư
 async function getUserBalance(userId) {
   const rows = await queryAll('SELECT balance FROM users WHERE id = ?', [userId]);
   if (!rows || rows.length === 0) return 0;
@@ -483,10 +501,11 @@ async function addMoney(userId, amount) {
 }
 
 async function deductBalance(userId, amount) {
-  const deductVal = Math.max(0, parseInt(amount, 10) || 0);
-  return await queryRun('UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?', [deductVal, userId, deductVal]);
+  const val = parseInt(amount, 10) || 0;
+  return await queryRun('UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?', [val, userId, val]);
 }
 
+// Nạp tiền
 async function createDeposit(userId, amount, content) {
   const createdAt = Date.now();
   const result = await queryRun(
@@ -498,7 +517,7 @@ async function createDeposit(userId, amount, content) {
 
 async function getPendingDeposits() {
   const rows = await queryAll("SELECT id, user_id, amount, content, created_at FROM deposits WHERE status = 'pending'");
-  return rows.map(r => ({
+  return rows.map((r) => ({
     id: r.id,
     userId: r.user_id,
     amount: r.amount,
@@ -511,23 +530,23 @@ async function updateDepositStatus(depositId, status) {
   await queryRun('UPDATE deposits SET status = ? WHERE id = ?', [status, depositId]);
 }
 
-// Lấy danh sách Top nạp tiền nhiều nhất
-async function getTopDepositors(limit = 10) {
-  const sql = `
-    SELECT d.user_id, COALESCE(u.first_name, 'Khách giấu tên') as first_name, SUM(d.amount) as total_deposited
-    FROM deposits d
-    LEFT JOIN users u ON d.user_id = u.id
-    WHERE d.status = 'completed'
-    GROUP BY d.user_id, u.first_name
-    ORDER BY total_deposited DESC
-    LIMIT ?
-  `;
-  const rows = await queryAll(sql, [limit]);
-  return rows.map(r => ({
-    userId: r.user_id,
-    firstName: r.first_name,
-    totalDeposited: parseInt(r.total_deposited, 10) || 0
-  }));
+// Thống kê nạp
+async function getUserDepositStats(userId) {
+  const rowsTotal = await queryAll(
+    "SELECT COALESCE(SUM(amount), 0) AS total FROM deposits WHERE user_id = ? AND status = 'completed'",
+    [userId]
+  );
+  const totalDeposit = parseInt(rowsTotal[0]?.total, 10) || 0;
+
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const rowsMonth = await queryAll(
+    "SELECT COALESCE(SUM(amount), 0) AS total_month FROM deposits WHERE user_id = ? AND status = 'completed' AND created_at >= ?",
+    [userId, startOfMonth]
+  );
+  const monthDeposit = parseInt(rowsMonth[0]?.total_month, 10) || 0;
+
+  return { totalDeposit, monthDeposit };
 }
 
 module.exports = {
@@ -543,6 +562,7 @@ module.exports = {
   markStockSold,
   createOrder,
   updateOrder,
+  getOrderById,
   getOrdersByUser,
   getPendingOrders,
   saveUser,
@@ -563,5 +583,5 @@ module.exports = {
   createDeposit,
   getPendingDeposits,
   updateDepositStatus,
-  getTopDepositors
+  getUserDepositStats
 };

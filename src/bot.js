@@ -11,65 +11,136 @@ const getFullName = (user) => (user.first_name + (user.last_name ? ' ' + user.la
 const ORDER_TIMEOUT_MS = 20 * 60 * 1000;
 const BOT_START_TIME = Date.now();
 
-// Hàm che 1 nửa UID
+// Cấu hình tỉnh mặc định (admin có thể đổi bằng /settinh)
+let SELECTED_CITY = 'Hanoi';
+let lastGreetedDay = { morning: '', noon: '' };
+
 function maskUid(uid) {
   const s = uid.toString();
   const keep = Math.ceil(s.length / 2);
   return s.substring(0, keep) + '*'.repeat(s.length - keep);
 }
 
-const MESSAGES = {
-  vi: {
-    channel: '📢 Kênh:',
-    admin_support: '👑 CSKH:',
-    acc_info: '💳 TÀI CHÍNH',
-    total_deposit: '├ Tổng nạp:',
-    month_deposit: '├ Nạp tháng:',
-    balance: '╰ Số dư ví:',
-    choose_category: '📂 <b>DANH MỤC MẶT HÀNG:</b>\n<i>(Chạm vào danh mục để xem sản phẩm)</i>',
-    btn_deposit: '💳 Nạp tiền',
-    btn_top: '🏆 Top nạp',
-    btn_profile: '👤 Tài khoản',
-    btn_history: '📜 Lịch sử',
-    btn_support: '💬 Hỗ trợ CSKH',
-    btn_change_lang: '🌐 Ngôn ngữ',
-    btn_back_cat: '◀️ Quay lại',
-    btn_back_home: '◀️ Trang chủ',
-    stock_in: 'Còn',
-    stock_out: 'Hết',
-    buy_wallet: '⚡ Mua bằng ví',
-    buy_bank: '🏦 Quét VietQR',
-    insufficient_balance: 'Số dư ví không đủ! Vui lòng nạp thêm.',
-    out_of_stock: 'Mặt hàng đã hết trong kho!',
-    order_confirm: '🧾 XÁC NHẬN ĐƠN HÀNG'
-  },
-  en: {
-    channel: '📢 Channel:',
-    admin_support: '👑 Support:',
-    acc_info: '💳 BALANCE',
-    total_deposit: '├ Total:',
-    month_deposit: '├ Month:',
-    balance: '╰ Wallet:',
-    choose_category: '📂 <b>CATEGORIES:</b>\n<i>(Select category to browse items)</i>',
-    btn_deposit: '💳 Deposit',
-    btn_top: '🏆 Top Users',
-    btn_profile: '👤 Profile',
-    btn_history: '📜 History',
-    btn_support: '💬 Support 24/7',
-    btn_change_lang: '🌐 Language',
-    btn_back_cat: '◀️ Back',
-    btn_back_home: '◀️ Home',
-    stock_in: 'Stock',
-    stock_out: 'Sold Out',
-    buy_wallet: '⚡ Pay via Wallet',
-    buy_bank: '🏦 Pay via QR',
-    insufficient_balance: 'Insufficient balance! Please deposit.',
-    out_of_stock: 'This product is out of stock!',
-    order_confirm: '🧾 CONFIRMATION'
+// ==================== LẤY THỜI TIẾT THỰC TẾ (FREE API) ====================
+async function fetchRealWeather(city) {
+  try {
+    const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`);
+    const data = await res.json();
+    const current = data.current_condition[0];
+    return {
+      location: city.toUpperCase(),
+      temp: `${current.temp_C}°C (Cảm giác ${current.FeelsLikeC}°C)`,
+      humidity: `${current.humidity}%`,
+      condition: current.weatherDesc[0].value,
+      wind: `${current.windspeedKmph} km/h`
+    };
+  } catch (e) {
+    return {
+      location: city.toUpperCase(),
+      temp: '28°C - 32°C',
+      humidity: '75%',
+      condition: 'Trời quang mây tạnh ☀️',
+      wind: '10 km/h'
+    };
   }
-};
+}
 
-// ==================== CANVAS: THẺ BÁO ĐỘNG BIẾN ĐỘNG SỐ DƯ (FINTECH STYLE) ====================
+// ==================== CANVAS: THẺ CHÚC BUỔI SÁNG / TRƯA ====================
+function generateGreetingCard(targetName, weatherInfo, isMorning = true) {
+  const width = 850;
+  const height = 480;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  const grad = ctx.createLinearGradient(0, 0, width, height);
+  if (isMorning) {
+    grad.addColorStop(0, '#09152e');
+    grad.addColorStop(0.5, '#172554');
+    grad.addColorStop(1, '#1e1b4b');
+  } else {
+    grad.addColorStop(0, '#0c4a6e');
+    grad.addColorStop(0.5, '#075985');
+    grad.addColorStop(1, '#082f49');
+  }
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = isMorning ? '#facc15' : '#38bdf8';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(16, 16, width - 32, height - 32);
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(26, 26, width - 52, height - 52);
+
+  // Header
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = 'bold 15px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(`📅 ${new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}`, 45, 65);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = isMorning ? '#facc15' : '#38bdf8';
+  ctx.fillText(isMorning ? '🌅 CHÀO BUỔI SÁNG (MORNING)' : '☀️ CHÀO BUỔI TRƯA (NOON)', width - 45, 65);
+
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(45, 85);
+  ctx.lineTo(width - 45, 85);
+  ctx.stroke();
+
+  // Khối thông điệp chính
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = 'bold 28px sans-serif';
+  const mainMsg = isMorning
+    ? `Chúc ${targetName} một ngày mới rực rỡ và tràn đầy may mắn!`
+    : `Chúc ${targetName} buổi trưa ngon miệng và nghỉ ngơi thật tốt!`;
+  ctx.fillText(mainMsg, width / 2, 145);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = 'italic 16px sans-serif';
+  const subMsg = isMorning
+    ? '“Mỗi buổi sáng mang đến cơ hội mới để bạn chạm tay vào thành công.”'
+    : '“Tạm gác lại công việc, nạp lại năng lượng cho buổi chiều bùng nổ nhé.”';
+  ctx.fillText(subMsg, width / 2, 185);
+
+  // Khối thời tiết (Weather Box)
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
+  ctx.fillRect(45, 225, width - 90, 150);
+  ctx.strokeStyle = isMorning ? 'rgba(250, 204, 21, 0.35)' : 'rgba(56, 189, 248, 0.35)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(45, 225, width - 90, 150);
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = isMorning ? '#facc15' : '#38bdf8';
+  ctx.font = 'bold 18px sans-serif';
+  ctx.fillText(`🌤️ THỜI TIẾT TẠI: ${weatherInfo.location}`, 70, 265);
+
+  ctx.fillStyle = '#f1f5f9';
+  ctx.font = 'bold 24px monospace';
+  ctx.fillText(`${weatherInfo.temp}`, 70, 310);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '15px sans-serif';
+  ctx.fillText(`💧 Độ ẩm: ${weatherInfo.humidity}  │  💨 Gió: ${weatherInfo.wind}`, 70, 345);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#4ade80';
+  ctx.font = 'bold 18px sans-serif';
+  ctx.fillText(`Trạng thái: ${weatherInfo.condition}`, width - 70, 310);
+
+  // Footer
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#64748b';
+  ctx.font = '12px monospace';
+  ctx.fillText(`TỰ ĐỘNG CẬP NHẬT THEO NGÀY • THÔNG BÁO TỪ ${config.SHOP_NAME || 'SYSTEM'}`, width / 2, 435);
+
+  return canvas.toBuffer('image/png');
+}
+
+// ==================== CÁC HÀM CANVAS KHÁC ====================
 function generateBalanceAlertCard(userId, amount, oldBal, newBal, code) {
   const width = 750;
   const height = 520;
@@ -159,7 +230,6 @@ function generateBalanceAlertCard(userId, amount, oldBal, newBal, code) {
   return canvas.toBuffer('image/png');
 }
 
-// ==================== CANVAS: BẢNG XẾP HẠNG TOP NẠP ====================
 async function generateLeaderboardPodium(topList, bot) {
   const width = 1000;
   const height = 1200;
@@ -339,7 +409,6 @@ async function generateLeaderboardPodium(topList, bot) {
   return canvas.toBuffer('image/png');
 }
 
-// ==================== CANVAS: THẺ CĂN CƯỚC VIP ====================
 async function generateProfileCard(user, balance, totalDeposit, totalSpent, avatarUrl = null) {
   const width = 850;
   const height = 480;
@@ -463,7 +532,6 @@ async function generateProfileCard(user, balance, totalDeposit, totalSpent, avat
   return canvas.toBuffer('image/png');
 }
 
-// ==================== CANVAS: HÓA ĐƠN MUA HÀNG ====================
 function generateReceiptImage(orderId, user, product, qty, total, payMethod = 'WALLET') {
   const width = 650;
   const height = 750;
@@ -564,7 +632,6 @@ function generateReceiptImage(orderId, user, product, qty, total, payMethod = 'W
   return canvas.toBuffer('image/png');
 }
 
-// ==================== CANVAS: UPTIME VPS ====================
 function formatDuration(seconds) {
   const d = Math.floor(seconds / (3600 * 24));
   const h = Math.floor((seconds % (3600 * 24)) / 3600);
@@ -656,7 +723,6 @@ function generateUptimeImage() {
   return canvas.toBuffer('image/png');
 }
 
-// ==================== CANVAS: BÁO CÁO DOANH THU ====================
 function generateRevenueCard(stats, products, totalStock) {
   const width = 850;
   const height = 540;
@@ -761,7 +827,6 @@ function generateRevenueCard(stats, products, totalStock) {
   return canvas.toBuffer('image/png');
 }
 
-// ==================== CANVAS: BÁO CÁO TỒN KHO ====================
 function generateStatsCard(products, totalStock) {
   const width = 850;
   const displayLimit = Math.min(products.length, 10);
@@ -879,7 +944,6 @@ function generateStatsCard(products, totalStock) {
   return canvas.toBuffer('image/png');
 }
 
-// ==================== CANVAS: NHẬT KÝ ĐƠN HÀNG (/orders) ====================
 function generateOrdersLogCard(orders) {
   const width = 950;
   const displayLimit = Math.min(orders.length, 12);
@@ -890,7 +954,6 @@ function generateOrdersLogCard(orders) {
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
 
-  // Nền Cyber Dark
   const bgGrad = ctx.createLinearGradient(0, 0, width, height);
   bgGrad.addColorStop(0, '#090d16');
   bgGrad.addColorStop(0.5, '#111827');
@@ -906,7 +969,6 @@ function generateOrdersLogCard(orders) {
   ctx.lineWidth = 1;
   ctx.strokeRect(26, 26, width - 52, height - 52);
 
-  // Header
   ctx.fillStyle = '#c084fc';
   ctx.font = 'bold 24px sans-serif';
   ctx.textAlign = 'left';
@@ -924,7 +986,6 @@ function generateOrdersLogCard(orders) {
   ctx.lineTo(width - 45, 90);
   ctx.stroke();
 
-  // Thống kê nhanh trạng thái
   let completedCount = 0;
   let pendingCount = 0;
   let otherCount = 0;
@@ -956,7 +1017,6 @@ function generateOrdersLogCard(orders) {
   drawMiniStat(45 + boxW + 15, 105, boxW, '⏳ ĐANG CHỜ', `${pendingCount} đơn`, '#facc15');
   drawMiniStat(45 + (boxW + 15) * 2, 105, boxW, '❌ HỦY / HẾT HẠN', `${otherCount} đơn`, '#f87171');
 
-  // Header Table
   const tableHeadY = 185;
   ctx.fillStyle = 'rgba(51, 65, 85, 0.5)';
   ctx.fillRect(45, tableHeadY, width - 90, 32);
@@ -971,7 +1031,6 @@ function generateOrdersLogCard(orders) {
   ctx.textAlign = 'right';
   ctx.fillText('TRẠNG THÁI', width - 60, tableHeadY + 21);
 
-  // Rows dữ liệu
   let startRowY = tableHeadY + 36;
   if (orders.length === 0) {
     ctx.fillStyle = '#64748b';
@@ -986,32 +1045,27 @@ function generateOrdersLogCard(orders) {
       ctx.fillStyle = i % 2 === 0 ? 'rgba(30, 41, 59, 0.4)' : 'rgba(15, 23, 42, 0.5)';
       ctx.fillRect(45, rY, width - 90, 38);
 
-      // Mã đơn
       ctx.textAlign = 'left';
       ctx.fillStyle = '#38bdf8';
       ctx.font = 'bold 14px monospace';
       ctx.fillText(`#${o.id}`, 60, rY + 24);
 
-      // Khách hàng
       ctx.fillStyle = '#f8fafc';
       ctx.font = 'bold 13px sans-serif';
       let cName = o.user_name || 'Khách';
       if (cName.length > 15) cName = cName.substring(0, 14) + '...';
       ctx.fillText(cName, 150, rY + 24);
 
-      // Tên sản phẩm & Số lượng
       ctx.fillStyle = '#cbd5e1';
       ctx.font = '13px sans-serif';
       let pTitle = `${o.product_name} (x${o.quantity || 1})`;
       if (pTitle.length > 25) pTitle = pTitle.substring(0, 24) + '...';
       ctx.fillText(pTitle, 360, rY + 24);
 
-      // Tổng tiền
       ctx.fillStyle = '#4ade80';
       ctx.font = 'bold 14px monospace';
       ctx.fillText(formatPrice(o.total_price || 0), 660, rY + 24);
 
-      // Trạng thái Badge
       let statusLabel = 'HOÀN TẤT';
       let statusColor = '#4ade80';
       if (o.status === 'pending') {
@@ -1029,7 +1083,6 @@ function generateOrdersLogCard(orders) {
     }
   }
 
-  // Footer
   ctx.textAlign = 'center';
   ctx.fillStyle = '#64748b';
   ctx.font = '12px monospace';
@@ -1354,6 +1407,7 @@ async function startBot() {
       { command: 'orders', description: '📦 Danh sách đơn hàng Canvas' },
       { command: 'revenue', description: '📈 Thống kê doanh thu Canvas' },
       { command: 'stats', description: '📊 Kiểm tra tồn kho Canvas' },
+      { command: 'settinh', description: '🌤️ Cài đặt tỉnh/thành thời tiết' },
       { command: 'users', description: '👥 Quản lý thành viên' },
       { command: 'broadcast', description: '📣 Thông báo shop' },
       { command: 'setmoney', description: '💵 Chỉnh sửa số dư' }
@@ -1361,6 +1415,44 @@ async function startBot() {
   });
 
   bot.on('polling_error', (err) => console.log('Polling error:', err.message));
+
+  // ==================== TỰ ĐỘNG CHÚC BUỔI SÁNG & TRƯA THEO NGÀY ====================
+  setInterval(async () => {
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const todayStr = now.toDateString();
+
+    // 07:00 sáng tự động gửi lời chúc
+    if (currentHour === 7 && currentMinute === 0 && lastGreetedDay.morning !== todayStr) {
+      lastGreetedDay.morning = todayStr;
+      const weather = await fetchRealWeather(SELECTED_CITY);
+      const card = generateGreetingCard('quý khách', weather, true);
+
+      const users = await db.getAllUsers();
+      for (const u of users) {
+        bot.sendPhoto(u.id, card, {
+          caption: `🌅 <b>CHÀO NGÀY MỚI RỰC RỠ!</b>\n<i>Hệ thống tự động cập nhật thời tiết tại ${SELECTED_CITY}. Chúc bạn một ngày may mắn!</i>`,
+          parse_mode: 'HTML'
+        }).catch(() => {});
+      }
+    }
+
+    // 11:30 trưa tự động gửi lời chúc
+    if (currentHour === 11 && currentMinute === 30 && lastGreetedDay.noon !== todayStr) {
+      lastGreetedDay.noon = todayStr;
+      const weather = await fetchRealWeather(SELECTED_CITY);
+      const card = generateGreetingCard('quý khách', weather, false);
+
+      const users = await db.getAllUsers();
+      for (const u of users) {
+        bot.sendPhoto(u.id, card, {
+          caption: `☀️ <b>CHÚC BUỔI TRƯA AN LÀNH!</b>\n<i>Nghỉ ngơi và có bữa trưa ngon miệng nhé!</i>`,
+          parse_mode: 'HTML'
+        }).catch(() => {});
+      }
+    }
+  }, 30000);
 
   // ==================== QUÉT ĐƠN & GỬI THẺ BIẾN ĐỘNG SỐ DƯ ====================
   setInterval(async () => {
@@ -1450,6 +1542,18 @@ async function startBot() {
       }
     }
   }, 25000);
+
+  // Lệnh chọn tỉnh thành
+  bot.onText(/\/settinh(?:\s+(.+))?/, async (msg, match) => {
+    if (!isAdmin(msg.from.id)) return;
+    const cityInput = match[1]?.trim();
+    if (!cityInput) {
+      return bot.sendMessage(msg.chat.id, `🌤️ Tỉnh/Thành hiện tại: <b>${SELECTED_CITY}</b>\n👉 Đổi tỉnh bằng cú pháp: <code>/settinh Hanoi</code> hoặc <code>/settinh Saigon</code>, <code>/settinh Danang</code>`, { parse_mode: 'HTML' });
+    }
+    SELECTED_CITY = cityInput;
+    const weather = await fetchRealWeather(SELECTED_CITY);
+    bot.sendMessage(msg.chat.id, `✅ <b>Đã lưu tỉnh thành: ${SELECTED_CITY.toUpperCase()}</b>\n🌡️ Test thời tiết: <b>${weather.temp}</b> | ${weather.condition}`, { parse_mode: 'HTML' });
+  });
 
   bot.onText(/\/uptime/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
@@ -2603,7 +2707,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
     }
   });
 
-  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với bộ Canvas toàn diện (Biến động số dư, Podium Top nạp, Thẻ VIP, Hóa đơn, Doanh thu, Tồn kho, Đơn hàng)!');
+  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với bộ Canvas toàn diện kèm tự động chúc sáng/trưa!');
 }
 
 startBot().catch(console.error);

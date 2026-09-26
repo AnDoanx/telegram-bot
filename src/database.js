@@ -87,6 +87,7 @@ async function initMysql() {
         first_name VARCHAR(255),
         username VARCHAR(255),
         balance BIGINT DEFAULT 0,
+        lang VARCHAR(10) DEFAULT 'vi',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -104,6 +105,7 @@ async function initMysql() {
     `);
 
     try { await connection.query(`ALTER TABLE users ADD COLUMN balance BIGINT DEFAULT 0`); } catch (_) {}
+    try { await connection.query(`ALTER TABLE users ADD COLUMN lang VARCHAR(10) DEFAULT 'vi'`); } catch (_) {}
     try { await connection.query(`ALTER TABLE orders ADD COLUMN delivered_data TEXT`); } catch (_) {}
   } finally {
     connection.release();
@@ -152,6 +154,7 @@ function initSqlite() {
       first_name TEXT,
       username TEXT,
       balance INTEGER DEFAULT 0,
+      lang TEXT DEFAULT 'vi',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS deposits (
@@ -166,6 +169,7 @@ function initSqlite() {
   `);
 
   try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'vi';`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN delivered_data TEXT;`); } catch (_) {}
 }
 
@@ -387,12 +391,13 @@ async function saveUser(id, firstName, username) {
 }
 
 async function getAllUsers() {
-  const rows = await queryAll('SELECT id, first_name, username, balance FROM users');
+  const rows = await queryAll('SELECT id, first_name, username, balance, lang FROM users');
   return rows.map((row) => ({
     id: row.id,
     first_name: row.first_name,
     username: row.username,
-    balance: parseInt(row.balance, 10) || 0
+    balance: parseInt(row.balance, 10) || 0,
+    lang: row.lang || 'vi'
   }));
 }
 
@@ -483,7 +488,19 @@ async function keepAlive() {
   }
 }
 
-// Xử lý số dư
+// ==================== CÀI ĐẶT NGÔN NGỮ (VI / EN) ====================
+
+async function getUserLang(userId) {
+  const rows = await queryAll('SELECT lang FROM users WHERE id = ?', [userId]);
+  return rows?.[0]?.lang || null;
+}
+
+async function setUserLang(userId, lang) {
+  return await queryRun('UPDATE users SET lang = ? WHERE id = ?', [lang, userId]);
+}
+
+// ==================== XỬ LÝ SỐ DƯ & VÍ ====================
+
 async function getUserBalance(userId) {
   const rows = await queryAll('SELECT balance FROM users WHERE id = ?', [userId]);
   if (!rows || rows.length === 0) return 0;
@@ -505,7 +522,8 @@ async function deductBalance(userId, amount) {
   return await queryRun('UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?', [val, userId, val]);
 }
 
-// Nạp tiền
+// ==================== HỆ THỐNG NẠP TIỀN ====================
+
 async function createDeposit(userId, amount, content) {
   const createdAt = Date.now();
   const result = await queryRun(
@@ -530,7 +548,8 @@ async function updateDepositStatus(depositId, status) {
   await queryRun('UPDATE deposits SET status = ? WHERE id = ?', [status, depositId]);
 }
 
-// Thống kê nạp
+// ==================== THỐNG KÊ TỔNG NẠP ====================
+
 async function getUserDepositStats(userId) {
   const rowsTotal = await queryAll(
     "SELECT COALESCE(SUM(amount), 0) AS total FROM deposits WHERE user_id = ? AND status = 'completed'",
@@ -583,5 +602,7 @@ module.exports = {
   createDeposit,
   getPendingDeposits,
   updateDepositStatus,
-  getUserDepositStats
+  getUserDepositStats,
+  getUserLang,
+  setUserLang
 };

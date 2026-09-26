@@ -11,6 +11,13 @@ const getFullName = (user) => (user.first_name + (user.last_name ? ' ' + user.la
 const ORDER_TIMEOUT_MS = 20 * 60 * 1000;
 const BOT_START_TIME = Date.now();
 
+// Hàm che 1 nửa UID (VD: 12345678 -> 1234****)
+function maskUid(uid) {
+  const s = uid.toString();
+  const keep = Math.ceil(s.length / 2);
+  return s.substring(0, keep) + '*'.repeat(s.length - keep);
+}
+
 const MESSAGES = {
   vi: {
     channel: '📢 Kênh:',
@@ -62,14 +69,211 @@ const MESSAGES = {
   }
 };
 
-// ==================== CANVAS 1: THẺ CĂN CƯỚC / THẺ VIP THÀNH VIÊN ====================
+// ==================== CANVAS: BẢNG XẾP HẠNG TOP NẠP (PODIUM ULTRA HD) ====================
+async function generateLeaderboardPodium(topList, bot) {
+  const width = 1000;
+  const height = 1200;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  // Nền Gradient Dark Luxury & Cyberpunk
+  const bgGrad = ctx.createLinearGradient(0, 0, width, height);
+  bgGrad.addColorStop(0, '#090d16');
+  bgGrad.addColorStop(0.4, '#131b2e');
+  bgGrad.addColorStop(1, '#05070c');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, width, height);
+
+  // Viền bo nghệ thuật bên ngoài
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(16, 16, width - 32, height - 32);
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(26, 26, width - 52, height - 52);
+
+  // Tiêu đề Header sang trọng
+  ctx.fillStyle = '#facc15';
+  ctx.font = 'bold 36px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('🏆 BẢNG VINH DANH TOP ĐẠI GIA 🏆', width / 2, 75);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '16px monospace';
+  ctx.fillText(`• ${(config.SHOP_NAME || 'STORE TỰ ĐỘNG').toUpperCase()} • CẬP NHẬT THEO THỜI GIAN THỰC •`, width / 2, 105);
+
+  // Hàm vẽ Avatar tròn nét căng
+  async function drawAvatar(x, y, radius, avatarUrl, fallbackChar, borderColor) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+
+    let loaded = false;
+    if (avatarUrl) {
+      try {
+        const img = await loadImage(avatarUrl);
+        ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
+        loaded = true;
+      } catch (_) {}
+    }
+
+    if (!loaded) {
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+      ctx.fillStyle = '#64748b';
+      ctx.font = `bold ${Math.round(radius)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(fallbackChar.toUpperCase(), x, y + radius / 3);
+    }
+    ctx.restore();
+
+    // Viền phát sáng quanh avatar
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(x, y, radius + 2, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Tải trước avatar cho Top 3
+  const topAvatars = [null, null, null];
+  for (let i = 0; i < Math.min(3, topList.length); i++) {
+    try {
+      const photos = await bot.getUserProfilePhotos(topList[i].id, { limit: 1 });
+      if (photos.total_count > 0) {
+        topAvatars[i] = await bot.getFileLink(photos.photos[0][0].file_id);
+      }
+    } catch (_) {}
+  }
+
+  // Vẽ Bục Vinh Danh (Podium) Top 1, Top 2, Top 3
+  const podiumData = [
+    { rank: 2, x: 230, baseY: 480, h: 180, w: 220, color: '#cbd5e1', medal: '🥈 TOP 2', idx: 1 },
+    { rank: 1, x: 500, baseY: 430, h: 230, w: 240, color: '#facc15', medal: '👑 TOP 1', idx: 0 },
+    { rank: 3, x: 770, baseY: 520, h: 140, w: 220, color: '#fb923c', medal: '🥉 TOP 3', idx: 2 }
+  ];
+
+  for (const pod of podiumData) {
+    const user = topList[pod.idx];
+    const podLeft = pod.x - pod.w / 2;
+    const podTop = pod.baseY;
+
+    // Trụ bục
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.7)';
+    ctx.fillRect(podLeft, podTop, pod.w, pod.h);
+    ctx.strokeStyle = pod.color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(podLeft, podTop, pod.w, pod.h);
+
+    // Huy chương & Số hiệu
+    ctx.fillStyle = pod.color;
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(pod.medal, pod.x, podTop + 45);
+
+    if (user) {
+      const name = user.name || (user.username ? '@' + user.username : 'User');
+      const avatarR = pod.rank === 1 ? 52 : 44;
+      const avatarY = podTop - avatarR - 35;
+
+      await drawAvatar(pod.x, avatarY, avatarR, topAvatars[pod.idx], name[0] || 'U', pod.color);
+
+      // Tên thành viên
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 18px sans-serif';
+      let displayName = name;
+      if (displayName.length > 15) displayName = displayName.substring(0, 14) + '...';
+      ctx.fillText(displayName, pod.x, podTop - 8);
+
+      // UID đã che 1 nửa
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '14px monospace';
+      ctx.fillText(`ID: ${maskUid(user.id)}`, pod.x, podTop + 85);
+
+      // Số tiền nạp
+      ctx.fillStyle = '#4ade80';
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText(formatPrice(user.total), pod.x, podTop + 125);
+    } else {
+      ctx.fillStyle = '#64748b';
+      ctx.font = '16px sans-serif';
+      ctx.fillText('Đang trống', pod.x, podTop + 90);
+    }
+  }
+
+  // Danh sách Top 4 -> Top 10 (Dạng thẻ List ngang)
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(50, 690);
+  ctx.lineTo(width - 50, 690);
+  ctx.stroke();
+
+  let startListY = 730;
+  const listHeight = 56;
+
+  for (let i = 3; i < 10; i++) {
+    const user = topList[i];
+    const rowY = startListY + (i - 3) * (listHeight + 10);
+
+    // Khung thẻ
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+    ctx.fillRect(50, rowY, width - 100, listHeight);
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(50, rowY, width - 100, listHeight);
+
+    // Thứ hạng
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`#${i + 1}`, 75, rowY + 35);
+
+    if (user) {
+      const name = user.name || (user.username ? '@' + user.username : 'User');
+      let displayName = name;
+      if (displayName.length > 20) displayName = displayName.substring(0, 19) + '...';
+
+      // Tên & UID che 1 nửa
+      ctx.fillStyle = '#f1f5f9';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText(displayName, 140, rowY + 35);
+
+      ctx.fillStyle = '#64748b';
+      ctx.font = '14px monospace';
+      ctx.fillText(`(UID: ${maskUid(user.id)})`, 450, rowY + 35);
+
+      // Tổng nạp
+      ctx.fillStyle = '#4ade80';
+      ctx.font = 'bold 18px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(formatPrice(user.total), width - 80, rowY + 35);
+    } else {
+      ctx.fillStyle = '#475569';
+      ctx.font = 'italic 15px sans-serif';
+      ctx.fillText('Chưa có thành viên ghi danh', 140, rowY + 35);
+    }
+  }
+
+  // Footer bảo vệ & Watermark
+  ctx.fillStyle = '#64748b';
+  ctx.font = '13px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(`UID đã được ẩn danh để bảo mật thông tin tài khoản • ${config.SHOP_NAME || 'STORE'}`, width / 2, height - 30);
+
+  return canvas.toBuffer('image/png');
+}
+
+// ==================== CANVAS: THẺ CĂN CƯỚC VIP ====================
 async function generateProfileCard(user, balance, totalDeposit, totalSpent, avatarUrl = null) {
   const width = 850;
   const height = 480;
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
 
-  // Nền Gradient Cyberpunk Dark Navy
   const grad = ctx.createLinearGradient(0, 0, width, height);
   grad.addColorStop(0, '#0f172a');
   grad.addColorStop(0.5, '#1e1b4b');
@@ -77,7 +281,6 @@ async function generateProfileCard(user, balance, totalDeposit, totalSpent, avat
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
 
-  // Hoa văn viền neon công nghệ
   ctx.strokeStyle = '#38bdf8';
   ctx.lineWidth = 3;
   ctx.strokeRect(15, 15, width - 30, height - 30);
@@ -86,12 +289,10 @@ async function generateProfileCard(user, balance, totalDeposit, totalSpent, avat
   ctx.lineWidth = 1;
   ctx.strokeRect(25, 25, width - 50, height - 50);
 
-  // Header Thẻ
   ctx.fillStyle = '#38bdf8';
   ctx.font = 'bold 26px sans-serif';
   ctx.fillText(`⚡ ${(config.SHOP_NAME || 'SYSTEM').toUpperCase()} MEMBERSHIP`, 45, 68);
 
-  // Xác định Hạng thẻ dựa theo tổng nạp
   let rankName = 'MEMBER';
   let rankColor = '#94a3b8';
   if (totalDeposit >= 2000000) { rankName = 'DIAMOND VIP'; rankColor = '#38bdf8'; }
@@ -102,14 +303,12 @@ async function generateProfileCard(user, balance, totalDeposit, totalSpent, avat
   ctx.font = 'bold 18px monospace';
   ctx.fillText(`[ ${rankName} ]`, width - 210, 68);
 
-  // Phân cách Header
   ctx.strokeStyle = '#334155';
   ctx.beginPath();
   ctx.moveTo(45, 90);
   ctx.lineTo(width - 45, 90);
   ctx.stroke();
 
-  // Khung Avatar tròn hoặc Icon Placeholder
   const avatarX = 55;
   const avatarY = 120;
   const avatarSize = 130;
@@ -140,14 +339,12 @@ async function generateProfileCard(user, balance, totalDeposit, totalSpent, avat
   }
   ctx.restore();
 
-  // Viền Avatar
   ctx.strokeStyle = rankColor;
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2 + 2, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Thông tin User
   const textX = 220;
   ctx.fillStyle = '#f8fafc';
   ctx.font = 'bold 24px sans-serif';
@@ -155,9 +352,8 @@ async function generateProfileCard(user, balance, totalDeposit, totalSpent, avat
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = '16px monospace';
-  ctx.fillText(`ID: ${user.id} | ${user.username ? '@' + user.username : 'No Username'}`, textX, 185);
+  ctx.fillText(`ID: ${maskUid(user.id)} | ${user.username ? '@' + user.username : 'No Username'}`, textX, 185);
 
-  // Khối thông số tài chính 3 ô
   function drawStat(x, y, w, title, val, color) {
     ctx.fillStyle = 'rgba(30, 41, 59, 0.7)';
     ctx.fillRect(x, y, w, 75);
@@ -178,7 +374,6 @@ async function generateProfileCard(user, balance, totalDeposit, totalSpent, avat
   drawStat(textX + 200, 215, 185, '🏯 TỔNG NẠP', formatPrice(totalDeposit), '#38bdf8');
   drawStat(textX + 400, 215, 185, '💸 ĐÃ TIÊU DÙNG', formatPrice(totalSpent), '#f43f5e');
 
-  // Vẽ Barcode giả lập chân thực dưới góc
   const barY = 370;
   ctx.fillStyle = '#ffffff';
   let curX = 55;
@@ -190,29 +385,26 @@ async function generateProfileCard(user, balance, totalDeposit, totalSpent, avat
 
   ctx.fillStyle = '#64748b';
   ctx.font = '13px monospace';
-  ctx.fillText(`MEMBER ID: #${user.id} • AUTHENTICATED BY BOT`, 55, 435);
+  ctx.fillText(`MEMBER ID: #${maskUid(user.id)} • VERIFIED BY BOT`, 55, 435);
   ctx.fillText(`Issued: ${new Date().toLocaleDateString('vi-VN')}`, width - 210, 435);
 
   return canvas.toBuffer('image/png');
 }
 
-// ==================== CANVAS 2: HÓA ĐƠN MUA HÀNG ĐIỆN TỬ (E-RECEIPT) ====================
+// ==================== CANVAS: HÓA ĐƠN MUA HÀNG ====================
 function generateReceiptImage(orderId, user, product, qty, total, payMethod = 'WALLET') {
   const width = 650;
   const height = 750;
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
 
-  // Nền giấy hóa đơn in hiện đại Dark Gray
   ctx.fillStyle = '#0f172a';
   ctx.fillRect(0, 0, width, height);
 
-  // Đường viền đứt nét nét cổ điển hóa đơn
   ctx.strokeStyle = '#334155';
   ctx.lineWidth = 2;
   ctx.strokeRect(20, 20, width - 40, height - 40);
 
-  // Header Invoice
   ctx.fillStyle = '#38bdf8';
   ctx.font = 'bold 30px sans-serif';
   ctx.textAlign = 'center';
@@ -222,16 +414,14 @@ function generateReceiptImage(orderId, user, product, qty, total, payMethod = 'W
   ctx.font = '14px sans-serif';
   ctx.fillText(`${config.SHOP_NAME || 'STORE TỰ ĐỘNG'} • OFFICIAL RECEIPT`, width / 2, 102);
 
-  // Line gạch đứt
   ctx.setLineDash([6, 6]);
   ctx.strokeStyle = '#475569';
   ctx.beginPath();
   ctx.moveTo(40, 125);
   ctx.lineTo(width - 40, 125);
   ctx.stroke();
-  ctx.setLineDash([]); // Reset dash
+  ctx.setLineDash([]);
 
-  // Nội dung đơn hàng
   ctx.textAlign = 'left';
   function drawReceiptRow(y, label, val, isBold = false) {
     ctx.fillStyle = '#94a3b8';
@@ -247,11 +437,10 @@ function generateReceiptImage(orderId, user, product, qty, total, payMethod = 'W
 
   drawReceiptRow(165, 'Mã đơn hàng:', `#${orderId}`, true);
   drawReceiptRow(205, 'Khách hàng:', getFullName(user));
-  drawReceiptRow(245, 'Telegram ID:', `${user.id}`);
-  drawReceiptRow(285, 'Thời gian thanh toán:', new Date().toLocaleString('vi-VN'));
+  drawReceiptRow(245, 'Telegram UID:', maskUid(user.id));
+  drawReceiptRow(285, 'Thời gian:', new Date().toLocaleString('vi-VN'));
   drawReceiptRow(325, 'Phương thức:', payMethod === 'WALLET' ? 'Số dư ví' : 'Chuyển khoản VietQR');
 
-  // Hộp chi tiết sản phẩm
   ctx.fillStyle = 'rgba(30, 41, 59, 0.6)';
   ctx.fillRect(40, 360, width - 80, 130);
   ctx.strokeStyle = '#334155';
@@ -272,10 +461,8 @@ function generateReceiptImage(orderId, user, product, qty, total, payMethod = 'W
   ctx.fillText(formatPrice(total), width - 60, 435);
   ctx.textAlign = 'left';
 
-  // Tổng thanh toán
-  drawReceiptRow(535, 'TỔNG TIỀN ĐÃ TRẢ:', formatPrice(total), true);
+  drawReceiptRow(535, 'TỔNG THANH TOÁN:', formatPrice(total), true);
 
-  // Line kết thúc
   ctx.setLineDash([6, 6]);
   ctx.strokeStyle = '#475569';
   ctx.beginPath();
@@ -284,7 +471,6 @@ function generateReceiptImage(orderId, user, product, qty, total, payMethod = 'W
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Dấu mộc mờ đỏ/xanh lá "PAID & VERIFIED"
   ctx.save();
   ctx.translate(width / 2, 630);
   ctx.rotate(-8 * Math.PI / 180);
@@ -298,16 +484,15 @@ function generateReceiptImage(orderId, user, product, qty, total, payMethod = 'W
   ctx.fillText('✓ ĐÃ THANH TOÁN', 0, 8);
   ctx.restore();
 
-  // Footer bảo hành
   ctx.fillStyle = '#64748b';
   ctx.font = '12px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('Lưu ý: Hóa đơn điện tử có giá trị xác nhận và bảo hành tài khoản.', width / 2, 705);
+  ctx.fillText('Hóa đơn điện tử có giá trị bảo hành tài khoản.', width / 2, 705);
 
   return canvas.toBuffer('image/png');
 }
 
-// ==================== CANVAS 3: UPTIME VPS MONITOR ====================
+// ==================== CANVAS: UPTIME VPS ====================
 function formatDuration(seconds) {
   const d = Math.floor(seconds / (3600 * 24));
   const h = Math.floor((seconds % (3600 * 24)) / 3600);
@@ -399,7 +584,6 @@ function generateUptimeImage() {
   return canvas.toBuffer('image/png');
 }
 
-// Hàm gửi tin nhắn không bị gián đoạn
 async function sendOrEditText(bot, chatId, messageId, text, keyboard) {
   if (messageId) {
     try {
@@ -525,7 +709,6 @@ function notifyAllAdmins(bot, message) {
   });
 }
 
-// GIAO HÀNG KÈM ẢNH HÓA ĐƠN CANVAS VÀ FILE TXT
 async function deliverOrder(bot, orderId, chatId, userId, userFrom, product, accounts, payMethod = 'WALLET') {
   const accListRaw = accounts.join('\n');
   await db.updateOrder(orderId, null, 'completed', accListRaw);
@@ -553,7 +736,6 @@ ${accounts.map((acc, i) => `[${i + 1}] ${acc}`).join('\n')}
   const filename = `Order_${orderId}.txt`;
   const totalPrice = product.price * accounts.length;
 
-  // 1. Vẽ và gửi hóa đơn điện tử Canvas
   try {
     const receiptBuffer = generateReceiptImage(orderId, userFrom, product, accounts.length, totalPrice, payMethod);
     await bot.sendPhoto(chatId, receiptBuffer, {
@@ -564,7 +746,6 @@ ${accounts.map((acc, i) => `[${i + 1}] ${acc}`).join('\n')}
     console.log('Lỗi render hóa đơn Canvas:', e.message);
   }
 
-  // 2. Gửi tệp TXT dữ liệu tài khoản
   await bot.sendDocument(chatId, txtBuffer, {
     caption: 
 `╔══════════════════════════════╗
@@ -579,7 +760,6 @@ ${accounts.map((acc, i) => `[${i + 1}] ${acc}`).join('\n')}
     parse_mode: 'HTML'
   }, { filename, contentType: 'text/plain' });
 
-  // 3. Thông báo cho Admin
   let adminAccDetails = '';
   accounts.forEach((acc, i) => {
     const p = parseAccount(acc);
@@ -1071,41 +1251,30 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         return await sendOrEditText(bot, chatId, messageId, langText, getLanguageKeyboard());
       }
 
+      // ==================== TẠO BẢNG PODIUM BẰNG CANVAS (TOP NẠP) ====================
       if (data === 'view_top_deposits') {
         let topList = [];
         if (db.getTopDeposits) {
           topList = await db.getTopDeposits(10);
         }
 
-        let text = 
-`╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
-  🏆 <b>BẢNG VINH DANH TOP NẠP</b> 🏆
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯
-<i>Tri ân sự tin tưởng và đồng hành của bạn!</i>
-─────────────────────────\n`;
+        try {
+          const podiumBuffer = await generateLeaderboardPodium(topList, bot);
+          await bot.deleteMessage(chatId, messageId);
 
-        if (topList.length === 0) {
-          text += `<i>Chưa có giao dịch nạp nào.</i>`;
-        } else {
-          topList.forEach((u, idx) => {
-            let medal = '▫️';
-            if (idx === 0) medal = '🥇';
-            else if (idx === 1) medal = '🥈';
-            else if (idx === 2) medal = '🥉';
+          const keyboard = [
+            [{ text: '💳 Nạp tiền ngay', callback_data: 'deposit_menu' }],
+            [{ text: '◀️ Về Trang Chủ', callback_data: 'back_main' }]
+          ];
 
-            const userTag = u.username ? `@${u.username}` : `<code>${u.name}</code>`;
-            text += `${medal} <b>Top ${idx + 1}:</b> ${userTag}\n   ╰ 💰 <b>Tổng:</b> <code>${formatPrice(u.total)}</code>\n\n`;
+          return await bot.sendPhoto(chatId, podiumBuffer, {
+            caption: `🏆 <b>BẢNG VINH DANH TOP ĐẠI GIA</b>\n<i>Nạp tiền ngay để leo lên bục vinh danh cao quý nhất!</i>`,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: keyboard }
           });
+        } catch (err) {
+          console.log('Lỗi render Podium Canvas:', err.message);
         }
-
-        text += `─────────────────────────\n💡 <i>Nạp tiền ngay để vinh danh trên bảng vàng!</i>`;
-
-        const keyboard = [
-          [{ text: '💳 Nạp tiền ngay', callback_data: 'deposit_menu' }],
-          [{ text: '◀️ Về Trang Chủ', callback_data: 'back_main' }]
-        ];
-
-        return await sendOrEditText(bot, chatId, messageId, text, keyboard);
       }
 
       if (data.startsWith('view_category_')) {
@@ -1356,7 +1525,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         return await sendOrEditText(bot, chatId, messageId, text, keyboard);
       }
 
-      // ==================== TẠO THẺ CĂN CƯỚC VIP BẰNG CANVAS TẠI PROFILE ====================
+      // THẺ CĂN CƯỚC VIP
       if (data === 'main_profile') {
         const orders = await db.getOrdersByUser(userId);
         const completed = orders.filter(o => o.status === 'completed');
@@ -1364,7 +1533,6 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         const balance = await db.getUserBalance(userId);
         const { totalDeposit } = await db.getUserDepositStats(userId);
 
-        // Lấy avatar Telegram của user
         let avatarUrl = null;
         try {
           const userProfiles = await bot.getUserProfilePhotos(userId, { limit: 1 });
@@ -1970,7 +2138,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
     }
   });
 
-  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với trọn bộ Canvas (Căn cước VIP, Hóa đơn điện tử, Uptime)!');
+  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với bộ Canvas hoàn chỉnh (Podium Top nạp, Thẻ VIP, Hóa đơn điện tử, Uptime)!');
 }
 
 startBot().catch(console.error);

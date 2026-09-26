@@ -112,9 +112,12 @@ async function initMysql() {
       )
     `);
 
+    // Tự động kiểm tra và nâng cấp cấu trúc bảng nếu database cũ bị thiếu
     try { await connection.query(`ALTER TABLE products ADD COLUMN category_id INT DEFAULT 0`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN balance BIGINT DEFAULT 0`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN lang VARCHAR(10) DEFAULT 'vi'`); } catch (_) {}
+    try { await connection.query(`ALTER TABLE orders ADD COLUMN chat_id BIGINT`); } catch (_) {}
+    try { await connection.query(`ALTER TABLE orders ADD COLUMN content TEXT`); } catch (_) {}
     try { await connection.query(`ALTER TABLE orders ADD COLUMN delivered_data TEXT`); } catch (_) {}
   } finally {
     connection.release();
@@ -183,10 +186,13 @@ function initSqlite() {
     CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
   `);
 
+  // Tự động kiểm tra và thêm cột nếu database cũ chưa có (xử lý triệt để lỗi thiếu cột)
+  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN chat_id INTEGER;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN content TEXT;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN delivered_data TEXT;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE products ADD COLUMN category_id INTEGER DEFAULT 0;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'vi';`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN delivered_data TEXT;`); } catch (_) {}
 }
 
 async function initDB() {
@@ -332,10 +338,6 @@ async function addProduct(name, price, description = '', categoryId = 0) {
 async function deleteProduct(id) {
   await queryRun('DELETE FROM stock WHERE product_id = ?', [id]);
   await queryRun('DELETE FROM products WHERE id = ?', [id]);
-}
-
-async function updateProductCategory(productId, categoryId) {
-  await queryRun('UPDATE products SET category_id = ? WHERE id = ?', [categoryId, productId]);
 }
 
 async function addStock(productId, accountData) {
@@ -612,26 +614,6 @@ async function getUserDepositStats(userId) {
   return { totalDeposit, monthDeposit };
 }
 
-// BẢNG XẾP HẠNG TOP NẠP TIỀN
-async function getTopDeposits(limit = 10) {
-  const rows = await queryAll(`
-    SELECT u.id, u.first_name, u.username, COALESCE(SUM(d.amount), 0) AS total_deposited
-    FROM deposits d
-    JOIN users u ON d.user_id = u.id
-    WHERE d.status = 'completed'
-    GROUP BY u.id, u.first_name, u.username
-    ORDER BY total_deposited DESC
-    LIMIT ?
-  `, [limit]);
-
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.first_name || 'Khách',
-    username: r.username || '',
-    total: parseInt(r.total_deposited, 10) || 0
-  }));
-}
-
 module.exports = {
   initDB,
   getAllCategories,
@@ -643,7 +625,6 @@ module.exports = {
   getProduct,
   addProduct,
   deleteProduct,
-  updateProductCategory,
   addStock,
   deleteStock,
   clearStock,
@@ -674,6 +655,5 @@ module.exports = {
   updateDepositStatus,
   getUserDepositStats,
   getUserLang,
-  setUserLang,
-  getTopDeposits
+  setUserLang
 };

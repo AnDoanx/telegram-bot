@@ -1,24 +1,28 @@
 @echo off
-title KEM BOT SHOP
-color 0B
-cls
+title Telegram Shop Bot
+color 0A
 
-echo ======================================================
-echo                  KEM BOT SHOP v2.5
-echo ======================================================
+echo ========================================
+echo        KEM SHOP BOT
+echo ========================================
 echo.
 
+:: Check if node_modules exists
 if not exist "node_modules\" (
-    echo [*] Dang cai dat thu vien, vui long cho...
-    call npm install
+    echo [!] Chua cai dat dependencies...
+    echo [*] Dang chay: npm install
+    echo.
+    npm install
+    echo.
 )
 
-echo [*] Dang khoi dong Bot...
-echo [*] Nhan Ctrl + C de dung.
+echo [*] Dang khoi dong bot...
+echo [*] Nhan Ctrl+C de dung bot
 echo.
 
 node src/bot.js
 
+:: If bot crashes, pause to see error
 echo.
-echo [!] Bot da dung.
-pause
+echo [!] Bot da dung. Nhan phim bat ky de dong...
+pause > nul

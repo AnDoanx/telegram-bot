@@ -612,6 +612,26 @@ async function getUserDepositStats(userId) {
   return { totalDeposit, monthDeposit };
 }
 
+// BẢNG XẾP HẠNG TOP NẠP TIỀN
+async function getTopDeposits(limit = 10) {
+  const rows = await queryAll(`
+    SELECT u.id, u.first_name, u.username, COALESCE(SUM(d.amount), 0) AS total_deposited
+    FROM deposits d
+    JOIN users u ON d.user_id = u.id
+    WHERE d.status = 'completed'
+    GROUP BY u.id, u.first_name, u.username
+    ORDER BY total_deposited DESC
+    LIMIT ?
+  `, [limit]);
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.first_name || 'Khách',
+    username: r.username || '',
+    total: parseInt(r.total_deposited, 10) || 0
+  }));
+}
+
 module.exports = {
   initDB,
   getAllCategories,
@@ -654,5 +674,6 @@ module.exports = {
   updateDepositStatus,
   getUserDepositStats,
   getUserLang,
-  setUserLang
+  setUserLang,
+  getTopDeposits
 };

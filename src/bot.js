@@ -658,13 +658,13 @@ function generateUptimeImage() {
 
 // ==================== CANVAS: BÁO CÁO DOANH THU ====================
 function generateRevenueCard(stats, products, totalStock) {
-  const width = 800;
-  const height = 520;
+  const width = 850;
+  const height = 540;
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
 
   const grad = ctx.createLinearGradient(0, 0, width, height);
-  grad.addColorStop(0, '#0a0f1d');
+  grad.addColorStop(0, '#090d16');
   grad.addColorStop(0.5, '#0f172a');
   grad.addColorStop(1, '#020617');
   ctx.fillStyle = grad;
@@ -672,91 +672,91 @@ function generateRevenueCard(stats, products, totalStock) {
 
   ctx.strokeStyle = '#facc15';
   ctx.lineWidth = 3;
-  ctx.strokeRect(15, 15, width - 30, height - 30);
+  ctx.strokeRect(16, 16, width - 32, height - 32);
 
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
   ctx.lineWidth = 1;
-  ctx.strokeRect(25, 25, width - 50, height - 50);
+  ctx.strokeRect(26, 26, width - 52, height - 52);
 
   ctx.fillStyle = '#38bdf8';
   ctx.font = 'bold 22px sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(`⚡ ${(config.SHOP_NAME || 'SYSTEM').toUpperCase()} REPORT`, 45, 65);
+  ctx.fillText(`⚡ ${(config.SHOP_NAME || 'STORE').toUpperCase()} • FINANCIAL SYSTEM`, 45, 68);
 
   ctx.fillStyle = '#facc15';
   ctx.font = 'bold 15px monospace';
   ctx.textAlign = 'right';
-  ctx.fillText('FINANCIAL EXECUTIVE', width - 45, 65);
+  ctx.fillText('[ BÁO CÁO TÀI CHÍNH ]', width - 45, 68);
 
   ctx.strokeStyle = '#1e293b';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(45, 85);
-  ctx.lineTo(width - 45, 85);
+  ctx.moveTo(45, 90);
+  ctx.lineTo(width - 45, 90);
   ctx.stroke();
 
   ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
-  ctx.fillRect(45, 105, width - 90, 120);
+  ctx.fillRect(45, 110, width - 90, 125);
   ctx.strokeStyle = 'rgba(16, 185, 129, 0.35)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(45, 105, width - 90, 120);
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(45, 110, width - 90, 125);
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = '14px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('TỔNG DOANH THU THỰC NHẬN', width / 2, 140);
+  ctx.fillText('TỔNG DOANH THU THỰC NHẬN TOÀN HỆ THỐNG', width / 2, 145);
 
   ctx.fillStyle = '#10b981';
-  ctx.font = 'bold 44px monospace';
-  ctx.fillText(formatPrice(stats.total_revenue || 0), width / 2, 192);
+  ctx.font = 'bold 46px monospace';
+  ctx.fillText(formatPrice(stats.total_revenue || 0), width / 2, 200);
 
   const totalOrders = stats.total_orders || 0;
   const aov = totalOrders > 0 ? Math.round((stats.total_revenue || 0) / totalOrders) : 0;
-  const colW = (width - 90 - 30) / 3;
+  const boxW = (width - 90 - 30) / 3;
 
-  function drawStatBox(x, y, w, title, val, color) {
-    ctx.fillStyle = 'rgba(30, 41, 59, 0.6)';
-    ctx.fillRect(x, y, w, 85);
+  function drawMetricBox(x, y, w, title, val, color) {
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.65)';
+    ctx.fillRect(x, y, w, 90);
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 1;
-    ctx.strokeRect(x, y, w, 85);
+    ctx.strokeRect(x, y, w, 90);
 
     ctx.fillStyle = '#94a3b8';
     ctx.font = '13px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(title, x + 16, y + 30);
+    ctx.fillText(title, x + 16, y + 32);
 
     ctx.fillStyle = color;
     ctx.font = 'bold 20px monospace';
-    ctx.fillText(val, x + 16, y + 64);
+    ctx.fillText(val, x + 16, y + 68);
   }
 
-  drawStatBox(45, 245, colW, '📦 ĐƠN THÀNH CÔNG', `${totalOrders} đơn`, '#38bdf8');
-  drawStatBox(45 + colW + 15, 245, colW, '📊 TRUNG BÌNH (AOV)', formatPrice(aov), '#facc15');
-  drawStatBox(45 + (colW + 15) * 2, 245, colW, '🎯 KHO KHẢ DỤNG', `${totalStock} acc`, '#4ade80');
+  drawMetricBox(45, 255, boxW, '📦 ĐƠN THÀNH CÔNG', `${totalOrders} đơn`, '#38bdf8');
+  drawMetricBox(45 + boxW + 15, 255, boxW, '📊 GIÁ TRỊ TB (AOV)', formatPrice(aov), '#facc15');
+  drawMetricBox(45 + (boxW + 15) * 2, 255, boxW, '🎯 TỒN KHO HIỆN TẠI', `${totalStock} acc`, '#4ade80');
 
   ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
-  ctx.fillRect(45, 350, width - 90, 75);
+  ctx.fillRect(45, 365, width - 90, 80);
   ctx.strokeStyle = '#1e293b';
   ctx.lineWidth = 1;
-  ctx.strokeRect(45, 350, width - 90, 75);
+  ctx.strokeRect(45, 365, width - 90, 80);
 
   ctx.textAlign = 'left';
   ctx.fillStyle = '#94a3b8';
   ctx.font = '14px sans-serif';
-  ctx.fillText('Đa dạng mặt hàng:', 65, 380);
-  ctx.fillText('Thời điểm chốt số:', 65, 408);
+  ctx.fillText('Số lượng mặt hàng trên kệ:', 65, 398);
+  ctx.fillText('Thời điểm xuất dữ liệu:', 65, 428);
 
   ctx.textAlign = 'right';
   ctx.fillStyle = '#f8fafc';
   ctx.font = 'bold 15px monospace';
-  ctx.fillText(`${products.length} danh mục / sản phẩm`, width - 65, 380);
-  ctx.fillText(new Date().toLocaleString('vi-VN'), width - 65, 408);
+  ctx.fillText(`${products.length} sản phẩm`, width - 65, 398);
+  ctx.fillText(new Date().toLocaleString('vi-VN'), width - 65, 428);
 
   ctx.textAlign = 'center';
   ctx.fillStyle = '#64748b';
   ctx.font = '12px monospace';
-  ctx.fillText('CONFIDENTIAL • BÁO CÁO NỘI BỘ DÀNH CHO ADMIN • DỮ LIỆU THỜI GIAN THỰC', width / 2, 480);
+  ctx.fillText('CONFIDENTIAL • BÁO CÁO NỘI BỘ DÀNH CHO ADMIN • DỮ LIỆU TỰ ĐỘNG THỜI GIAN THỰC', width / 2, 495);
 
   return canvas.toBuffer('image/png');
 }
@@ -781,27 +781,27 @@ function generateStatsCard(products, totalStock) {
 
   ctx.strokeStyle = '#38bdf8';
   ctx.lineWidth = 3;
-  ctx.strokeRect(15, 15, width - 30, height - 30);
+  ctx.strokeRect(16, 16, width - 32, height - 32);
 
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
   ctx.lineWidth = 1;
-  ctx.strokeRect(25, 25, width - 50, height - 50);
+  ctx.strokeRect(26, 26, width - 52, height - 52);
 
   ctx.fillStyle = '#38bdf8';
   ctx.font = 'bold 24px sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(`📦 INVENTORY CONTROL CENTER`, 45, 65);
+  ctx.fillText(`📦 INVENTORY CONTROL CENTER`, 45, 68);
 
   ctx.fillStyle = '#4ade80';
   ctx.font = 'bold 16px monospace';
   ctx.textAlign = 'right';
-  ctx.fillText(`TỔNG TỒN: ${totalStock} ACC`, width - 45, 65);
+  ctx.fillText(`TỔNG KHO: ${totalStock} ACC`, width - 45, 68);
 
   ctx.strokeStyle = '#1e293b';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(45, 85);
-  ctx.lineTo(width - 45, 85);
+  ctx.moveTo(45, 90);
+  ctx.lineTo(width - 45, 90);
   ctx.stroke();
 
   let lowStockCount = 0;
@@ -811,33 +811,33 @@ function generateStatsCard(products, totalStock) {
     else if (p.stock_count <= 3) lowStockCount++;
   });
 
-  const bannerColor = emptyStockCount > 0 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.1)';
+  const bannerBg = emptyStockCount > 0 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.1)';
   const bannerBorder = emptyStockCount > 0 ? '#ef4444' : '#10b981';
-  ctx.fillStyle = bannerColor;
-  ctx.fillRect(45, 100, width - 90, 50);
+  ctx.fillStyle = bannerBg;
+  ctx.fillRect(45, 105, width - 90, 50);
   ctx.strokeStyle = bannerBorder;
-  ctx.strokeRect(45, 100, width - 90, 50);
+  ctx.strokeRect(45, 105, width - 90, 50);
 
   ctx.fillStyle = emptyStockCount > 0 ? '#f87171' : '#4ade80';
   ctx.font = 'bold 15px sans-serif';
   ctx.textAlign = 'center';
   const alertText = emptyStockCount > 0 
-    ? `⚠️ CẢNH BÁO: Có ${emptyStockCount} mặt hàng HẾT HÀNG và ${lowStockCount} mặt hàng sắp hết!`
+    ? `⚠️ CẢNH BÁO: ${emptyStockCount} MẶT HÀNG HẾT KHO • ${lowStockCount} MẶT HÀNG SẮP HẾT`
     : `✅ TÌNH TRẠNG KHO HÀNG ỔN ĐỊNH • CÒN KHẢ DỤNG ${totalStock} ACC`;
-  ctx.fillText(alertText, width / 2, 131);
+  ctx.fillText(alertText, width / 2, 136);
 
   let startY = 175;
   if (products.length === 0) {
     ctx.fillStyle = '#64748b';
     ctx.font = 'italic 16px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Chưa có sản phẩm nào trong kho dữ liệu!', width / 2, 220);
+    ctx.fillText('Chưa có sản phẩm nào trong cơ sở dữ liệu!', width / 2, 240);
   } else {
     for (let i = 0; i < displayLimit; i++) {
       const p = products[i];
       const rowY = startY + i * rowHeight;
 
-      ctx.fillStyle = i % 2 === 0 ? 'rgba(30, 41, 59, 0.4)' : 'rgba(15, 23, 42, 0.5)';
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(30, 41, 59, 0.45)' : 'rgba(15, 23, 42, 0.55)';
       ctx.fillRect(45, rowY, width - 90, 36);
 
       ctx.fillStyle = '#f8fafc';
@@ -874,7 +874,168 @@ function generateStatsCard(products, totalStock) {
   ctx.textAlign = 'center';
   const remainCount = products.length - displayLimit;
   const extraText = remainCount > 0 ? `... và ${remainCount} sản phẩm khác • ` : '';
-  ctx.fillText(`${extraText}Kiểm tra lúc: ${new Date().toLocaleTimeString('vi-VN')} • Real-time Stock Monitor`, width / 2, height - 30);
+  ctx.fillText(`${extraText}Cập nhật lúc: ${new Date().toLocaleTimeString('vi-VN')} • Real-time Stock Monitor`, width / 2, height - 30);
+
+  return canvas.toBuffer('image/png');
+}
+
+// ==================== CANVAS: NHẬT KÝ ĐƠN HÀNG (/orders) ====================
+function generateOrdersLogCard(orders) {
+  const width = 950;
+  const displayLimit = Math.min(orders.length, 12);
+  const rowHeight = 44;
+  const baseHeight = 280;
+  const height = Math.max(520, baseHeight + displayLimit * rowHeight);
+
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  // Nền Cyber Dark
+  const bgGrad = ctx.createLinearGradient(0, 0, width, height);
+  bgGrad.addColorStop(0, '#090d16');
+  bgGrad.addColorStop(0.5, '#111827');
+  bgGrad.addColorStop(1, '#05070f');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = '#a855f7';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(16, 16, width - 32, height - 32);
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(26, 26, width - 52, height - 52);
+
+  // Header
+  ctx.fillStyle = '#c084fc';
+  ctx.font = 'bold 24px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`📦 ORDER AUDIT & MONITORING LOG`, 45, 68);
+
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 15px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText('[ REALTIME LEDGER ]', width - 45, 68);
+
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(45, 90);
+  ctx.lineTo(width - 45, 90);
+  ctx.stroke();
+
+  // Thống kê nhanh trạng thái
+  let completedCount = 0;
+  let pendingCount = 0;
+  let otherCount = 0;
+  orders.forEach(o => {
+    if (o.status === 'completed') completedCount++;
+    else if (o.status === 'pending') pendingCount++;
+    else otherCount++;
+  });
+
+  const boxW = (width - 90 - 30) / 3;
+  function drawMiniStat(x, y, w, title, val, color) {
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.6)';
+    ctx.fillRect(x, y, w, 52);
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, 52);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(title, x + 14, y + 22);
+
+    ctx.fillStyle = color;
+    ctx.font = 'bold 17px monospace';
+    ctx.fillText(val, x + 14, y + 43);
+  }
+
+  drawMiniStat(45, 105, boxW, '✅ HOÀN TẤT', `${completedCount} đơn`, '#4ade80');
+  drawMiniStat(45 + boxW + 15, 105, boxW, '⏳ ĐANG CHỜ', `${pendingCount} đơn`, '#facc15');
+  drawMiniStat(45 + (boxW + 15) * 2, 105, boxW, '❌ HỦY / HẾT HẠN', `${otherCount} đơn`, '#f87171');
+
+  // Header Table
+  const tableHeadY = 185;
+  ctx.fillStyle = 'rgba(51, 65, 85, 0.5)';
+  ctx.fillRect(45, tableHeadY, width - 90, 32);
+
+  ctx.font = 'bold 12px monospace';
+  ctx.fillStyle = '#94a3b8';
+  ctx.textAlign = 'left';
+  ctx.fillText('MÃ ĐƠN', 60, tableHeadY + 21);
+  ctx.fillText('KHÁCH HÀNG', 150, tableHeadY + 21);
+  ctx.fillText('MẶT HÀNG & SỐ LƯỢNG', 360, tableHeadY + 21);
+  ctx.fillText('TỔNG TIỀN', 660, tableHeadY + 21);
+  ctx.textAlign = 'right';
+  ctx.fillText('TRẠNG THÁI', width - 60, tableHeadY + 21);
+
+  // Rows dữ liệu
+  let startRowY = tableHeadY + 36;
+  if (orders.length === 0) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = 'italic 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Hiện chưa có đơn hàng nào được ghi nhận!', width / 2, startRowY + 50);
+  } else {
+    for (let i = 0; i < displayLimit; i++) {
+      const o = orders[i];
+      const rY = startRowY + i * rowHeight;
+
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(30, 41, 59, 0.4)' : 'rgba(15, 23, 42, 0.5)';
+      ctx.fillRect(45, rY, width - 90, 38);
+
+      // Mã đơn
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 14px monospace';
+      ctx.fillText(`#${o.id}`, 60, rY + 24);
+
+      // Khách hàng
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 13px sans-serif';
+      let cName = o.user_name || 'Khách';
+      if (cName.length > 15) cName = cName.substring(0, 14) + '...';
+      ctx.fillText(cName, 150, rY + 24);
+
+      // Tên sản phẩm & Số lượng
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = '13px sans-serif';
+      let pTitle = `${o.product_name} (x${o.quantity || 1})`;
+      if (pTitle.length > 25) pTitle = pTitle.substring(0, 24) + '...';
+      ctx.fillText(pTitle, 360, rY + 24);
+
+      // Tổng tiền
+      ctx.fillStyle = '#4ade80';
+      ctx.font = 'bold 14px monospace';
+      ctx.fillText(formatPrice(o.total_price || 0), 660, rY + 24);
+
+      // Trạng thái Badge
+      let statusLabel = 'HOÀN TẤT';
+      let statusColor = '#4ade80';
+      if (o.status === 'pending') {
+        statusLabel = 'CHỜ DUYỆT';
+        statusColor = '#facc15';
+      } else if (o.status === 'cancelled' || o.status === 'expired') {
+        statusLabel = 'ĐÃ HỦY';
+        statusColor = '#f87171';
+      }
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = statusColor;
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText(`[ ${statusLabel} ]`, width - 60, rY + 24);
+    }
+  }
+
+  // Footer
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#64748b';
+  ctx.font = '12px monospace';
+  const remain = orders.length - displayLimit;
+  const more = remain > 0 ? `và ${remain} đơn khác • ` : '';
+  ctx.fillText(`AUDIT TRAIL LOG • ${more}Cập nhật lúc: ${new Date().toLocaleTimeString('vi-VN')}`, width / 2, height - 30);
 
   return canvas.toBuffer('image/png');
 }
@@ -1190,7 +1351,7 @@ async function startBot() {
       { command: 'uptime', description: '⚡ Kiểm tra Uptime VPS Canvas' },
       { command: 'categories', description: '📁 Quản lý danh mục' },
       { command: 'products', description: '⚙️ Quản trị sản phẩm' },
-      { command: 'orders', description: '📦 Danh sách đơn hàng' },
+      { command: 'orders', description: '📦 Danh sách đơn hàng Canvas' },
       { command: 'revenue', description: '📈 Thống kê doanh thu Canvas' },
       { command: 'stats', description: '📊 Kiểm tra tồn kho Canvas' },
       { command: 'users', description: '👥 Quản lý thành viên' },
@@ -1334,11 +1495,11 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
       const stats = await db.getRevenue();
       const products = await db.getAllProducts();
       let totalStock = 0;
-      products.forEach(p => totalStock += p.stock_count);
+      products.forEach(p => totalStock += (p.stock_count || 0));
 
       const imgBuffer = generateRevenueCard(stats, products, totalStock);
       await bot.sendPhoto(msg.chat.id, imgBuffer, {
-        caption: `📈 <b>BÁO CÁO DOANH THU HỆ THỐNG</b>\n<i>Được kết xuất tự động từ cơ sở dữ liệu lúc ${new Date().toLocaleTimeString('vi-VN')}.</i>`,
+        caption: `📈 <b>BÁO CÁO DOANH THU HỆ THỐNG</b>\n<i>Dữ liệu trích xuất từ database lúc ${new Date().toLocaleTimeString('vi-VN')}.</i>`,
         parse_mode: 'HTML'
       });
     } catch (err) {
@@ -1352,7 +1513,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
     try {
       const products = await db.getAllProducts();
       let totalStock = 0;
-      products.forEach(p => totalStock += p.stock_count);
+      products.forEach(p => totalStock += (p.stock_count || 0));
 
       const imgBuffer = generateStatsCard(products, totalStock);
       await bot.sendPhoto(msg.chat.id, imgBuffer, {
@@ -1362,6 +1523,23 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
     } catch (err) {
       console.log('Lỗi vẽ canvas stats:', err.message);
       bot.sendMessage(msg.chat.id, '❌ Không thể kết xuất thẻ tồn kho!');
+    }
+  });
+
+  bot.onText(/\/orders/, async (msg) => {
+    if (!isAdmin(msg.from.id)) return;
+    try {
+      const orders = await db.getRecentOrders(12);
+      if (orders.length === 0) return bot.sendMessage(msg.chat.id, '📦 Hiện chưa có đơn hàng nào!');
+
+      const imgBuffer = generateOrdersLogCard(orders);
+      await bot.sendPhoto(msg.chat.id, imgBuffer, {
+        caption: `📦 <b>NHẬT KÝ ĐƠN HÀNG GẦN ĐÂY</b>\n<i>Hiển thị chi tiết khách hàng, tên sản phẩm & số lượng mua.</i>`,
+        parse_mode: 'HTML'
+      });
+    } catch (err) {
+      console.log('Lỗi vẽ canvas orders:', err.message);
+      bot.sendMessage(msg.chat.id, '❌ Không thể tạo nhật ký đơn hàng Canvas!');
     }
   });
 
@@ -1383,19 +1561,6 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
     const keyboard = products.map(p => [{ text: `📦 #${p.id} ${p.name} (Kho: ${p.stock_count})`, callback_data: 'adm_product_' + p.id }]);
     keyboard.push([{ text: '➕ Thêm sản phẩm mới', callback_data: 'adm_add_product' }]);
     bot.sendMessage(msg.chat.id, `⚙️ <b>QUẢN TRỊ SẢN PHẨM:</b>\n📊 Tổng cộng: <b>${products.length}</b> mặt hàng.`, { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
-  });
-
-  bot.onText(/\/orders/, async (msg) => {
-    if (!isAdmin(msg.from.id)) return;
-    const orders = await db.getRecentOrders(15);
-    if (orders.length === 0) return bot.sendMessage(msg.chat.id, '📦 Hiện chưa có đơn hàng nào!');
-
-    let text = `📦 <b>15 ĐƠN HÀNG GẦN ĐÂY:</b>\n─────────────────────────\n`;
-    orders.forEach((o) => {
-      const icon = o.status === 'completed' ? '✅' : o.status === 'pending' ? '⏳' : '❌';
-      text += `${icon} <b>#${o.id}</b> | <code>${o.user_name}</code>\n ├ 🎁 ${o.product_name} x${o.quantity}\n ╰ 💵 <code>${formatPrice(o.total_price || 0)}</code>\n\n`;
-    });
-    bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
   });
 
   bot.onText(/\/users/, async (msg) => {
@@ -1560,7 +1725,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
 
         try {
           const podiumBuffer = await generateLeaderboardPodium(topList, bot);
-          await bot.deleteMessage(chatId, messageId);
+          try { await bot.deleteMessage(chatId, messageId); } catch (_) {}
 
           const keyboard = [
             [{ text: '💳 Nạp tiền ngay', callback_data: 'deposit_menu' }],
@@ -1723,7 +1888,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         }
 
         const order = await db.createOrder(userId, parseInt(productId), chatId, 'WALLET_PAY', qty, totalPrice);
-        await bot.deleteMessage(chatId, messageId);
+        try { await bot.deleteMessage(chatId, messageId); } catch (_) {}
         await deliverOrder(bot, order.lastInsertRowid, chatId, userId, query.from, product, accounts, 'WALLET');
         return;
       }
@@ -1740,7 +1905,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         const orderId = order.lastInsertRowid;
         pendingOrders.set(orderId, { chatId, userId, productId: parseInt(productId), quantity: qty, totalPrice, content, createdAt: order.createdAt });
 
-        await bot.deleteMessage(chatId, messageId);
+        try { await bot.deleteMessage(chatId, messageId); } catch (_) {}
         const discountInfo = unitPrice < product.price ? '\n ├ 💎 <b>Ưu đãi:</b> <code>' + formatPrice(unitPrice) + '/sp</code>' : '';
         const caption = 
 `╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
@@ -1844,7 +2009,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
 
         try {
           const cardBuffer = await generateProfileCard(query.from, balance, totalDeposit, totalSpent, avatarUrl);
-          await bot.deleteMessage(chatId, messageId);
+          try { await bot.deleteMessage(chatId, messageId); } catch (_) {}
 
           const keyboard = [
             [{ text: '💳 Nạp tiền vào ví', callback_data: 'deposit_menu' }],
@@ -2438,7 +2603,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
     }
   });
 
-  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với bộ Canvas toàn diện (Biến động số dư, Podium Top nạp, Thẻ VIP, Hóa đơn, Doanh thu, Tồn kho)!');
+  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với bộ Canvas toàn diện (Biến động số dư, Podium Top nạp, Thẻ VIP, Hóa đơn, Doanh thu, Tồn kho, Đơn hàng)!');
 }
 
 startBot().catch(console.error);

@@ -268,6 +268,7 @@ ${t.choose_category}`;
   const categories = await db.getAllCategories();
   const keyboard = [];
 
+  // CHỈ HIỆN DUY NHẤT CÁC THƯ MỤC Ở ĐÂY (KHÔNG HIỆN SẢN PHẨM RA NGOÀI TRANG CHỦ)
   if (categories.length > 0) {
     categories.forEach(c => {
       keyboard.push([{
@@ -275,14 +276,11 @@ ${t.choose_category}`;
         callback_data: 'view_category_' + c.id
       }]);
     });
-  }
-
-  const uncategorizedProducts = await db.getProductsByCategory(0);
-  if (uncategorizedProducts.length > 0) {
-    uncategorizedProducts.forEach(p => {
-      const stockBadge = p.stock_count > 0 ? `🟢 ${t.stock_in} ${p.stock_count}` : `🔴 ${t.stock_out}`;
-      keyboard.push([{ text: wideInlineLabel(`💎 ${p.name} ▫️ ${getDisplayPrice(p)} [${stockBadge}]`), callback_data: 'product_' + p.id }]);
-    });
+  } else {
+    keyboard.push([{
+      text: wideInlineLabel('⚠️ Chưa có danh mục nào'),
+      callback_data: 'none'
+    }]);
   }
 
   keyboard.push([
@@ -487,7 +485,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
  ├ ✅ <b>Đơn thành công:</b> <code>${stats.total_orders} đơn</code>
  ├ 📦 <b>Mặt hàng:</b> <code>${products.length} loại</code>
  ╰ 🎯 <b>Acc tồn kho:</b> <code>${totalStock} acc</code>`;
-    bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
+    bot.sendMessage(msg.chat.id, text);
   });
 
   bot.onText(/\/orders/, async (msg) => {
@@ -589,6 +587,10 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     const data = query.data;
 
     try {
+      if (data === 'none') {
+        return bot.answerCallbackQuery(query.id);
+      }
+
       if (data === 'set_lang_vi' || data === 'set_lang_en') {
         const selectedLang = data === 'set_lang_vi' ? 'vi' : 'en';
         await db.setUserLang(userId, selectedLang);
@@ -965,7 +967,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
           }
 
           const keyboard = [
-            // Nút quan trọng: Chọn sản phẩm từ /products đưa vào thư mục này
             [{ text: wideInlineLabel('➕ Thêm sản phẩm từ /products'), callback_data: `adm_pick_from_prods_${catId}` }],
             [{ text: wideInlineLabel('🗑️ Xóa thư mục này'), callback_data: `adm_delcat_${catId}` }],
             [{ text: wideInlineLabel('◀️ Quay lại danh sách thư mục'), callback_data: 'adm_back_categories' }]
@@ -1017,7 +1018,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
 
           const currentProd = await db.getProduct(prodId);
           if (currentProd) {
-            const newCatId = currentProd.category_id === catId ? 0 : catId; // Nếu đã có thì gỡ ra 0, nếu chưa có thì gán catId
+            const newCatId = currentProd.category_id === catId ? 0 : catId;
             if (db.updateProductCategory) {
               await db.updateProductCategory(prodId, newCatId);
             }
@@ -1026,7 +1027,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
             });
           }
 
-          // Cập nhật lại danh sách nút bấm
           const cat = await db.getCategory(catId);
           const allProds = await db.getAllProducts();
           const keyboard = [];
@@ -1459,7 +1459,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     }
   });
 
-  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với đầy đủ tính năng liên kết /categories!');
+  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy!');
 }
 
 startBot().catch(console.error);

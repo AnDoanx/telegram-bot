@@ -82,7 +82,7 @@ async function initMysql() {
         chat_id BIGINT,
         content TEXT,
         quantity INT DEFAULT 1,
-        total_price INT DEFAULT 0,
+        total_price INT,
         delivered_data TEXT,
         created_at BIGINT,
         INDEX idx_user_status (user_id, status),
@@ -113,15 +113,8 @@ async function initMysql() {
     `);
 
     try { await connection.query(`ALTER TABLE products ADD COLUMN category_id INT DEFAULT 0`); } catch (_) {}
-    try { await connection.query(`ALTER TABLE products ADD COLUMN price_tiers TEXT`); } catch (_) {}
-    try { await connection.query(`ALTER TABLE users ADD COLUMN first_name VARCHAR(255)`); } catch (_) {}
-    try { await connection.query(`ALTER TABLE users ADD COLUMN username VARCHAR(255)`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN balance BIGINT DEFAULT 0`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN lang VARCHAR(10) DEFAULT 'vi'`); } catch (_) {}
-    try { await connection.query(`ALTER TABLE orders ADD COLUMN chat_id BIGINT`); } catch (_) {}
-    try { await connection.query(`ALTER TABLE orders ADD COLUMN content TEXT`); } catch (_) {}
-    try { await connection.query(`ALTER TABLE orders ADD COLUMN quantity INT DEFAULT 1`); } catch (_) {}
-    try { await connection.query(`ALTER TABLE orders ADD COLUMN total_price INT DEFAULT 0`); } catch (_) {}
     try { await connection.query(`ALTER TABLE orders ADD COLUMN delivered_data TEXT`); } catch (_) {}
   } finally {
     connection.release();
@@ -134,7 +127,6 @@ function initSqlite() {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   sqliteDb = new Database(config.SQLITE_PATH);
   sqliteDb.pragma('journal_mode = WAL');
-
   sqliteDb.exec(`
     CREATE TABLE IF NOT EXISTS categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -166,7 +158,7 @@ function initSqlite() {
       chat_id INTEGER,
       content TEXT,
       quantity INTEGER DEFAULT 1,
-      total_price INTEGER DEFAULT 0,
+      total_price INTEGER,
       delivered_data TEXT,
       created_at INTEGER
     );
@@ -191,19 +183,9 @@ function initSqlite() {
     CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
   `);
 
-  // Bổ sung các cột thiếu cho products, users, orders
-  try { sqliteDb.exec(`ALTER TABLE products ADD COLUMN price_tiers TEXT;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE products ADD COLUMN category_id INTEGER DEFAULT 0;`); } catch (_) {}
-
-  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN first_name TEXT;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN username TEXT;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'vi';`); } catch (_) {}
-
-  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN chat_id INTEGER;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN content TEXT;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN total_price INTEGER DEFAULT 0;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN delivered_data TEXT;`); } catch (_) {}
 }
 
@@ -264,25 +246,17 @@ function getUnitPrice(product, quantity) {
 
 // ========== CATEGORIES ==========
 async function getAllCategories() {
-  try {
-    const rows = await queryAll(`
-      SELECT c.id, c.name, c.description,
-      (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) as product_count
-      FROM categories c
-    `);
-    return rows.map(r => ({ id: r.id, name: r.name, description: r.description, product_count: parseInt(r.product_count, 10) || 0 }));
-  } catch (_) {
-    return [];
-  }
+  const rows = await queryAll(`
+    SELECT c.id, c.name, c.description,
+    (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) as product_count
+    FROM categories c
+  `);
+  return rows.map(r => ({ id: r.id, name: r.name, description: r.description, product_count: parseInt(r.product_count, 10) || 0 }));
 }
 
 async function getCategory(id) {
-  try {
-    const rows = await queryAll('SELECT * FROM categories WHERE id = ?', [id]);
-    return rows[0] || null;
-  } catch (_) {
-    return null;
-  }
+  const rows = await queryAll('SELECT * FROM categories WHERE id = ?', [id]);
+  return rows[0] || null;
 }
 
 async function addCategory(name, description = '') {
@@ -297,64 +271,54 @@ async function deleteCategory(id) {
 
 // ========== PRODUCTS ==========
 async function getAllProducts() {
-  try {
-    const rows = await queryAll(
-      `SELECT p.*, ${SQL_PRODUCTS_STOCK_SUB} FROM products p`
-    );
-    return rows.map((row) => ({
-      id: row.id,
-      category_id: row.category_id || 0,
-      name: row.name,
-      price: row.price,
-      description: row.description,
-      price_tiers: parsePriceTiersJson(row.price_tiers),
-      stock_count: parseInt(row.stock_count, 10) || 0
-    }));
-  } catch (e) {
-    return [];
-  }
+  const rows = await queryAll(
+    `SELECT p.id, p.category_id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB} FROM products p`
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    category_id: row.category_id || 0,
+    name: row.name,
+    price: row.price,
+    description: row.description,
+    price_tiers: parsePriceTiersJson(row.price_tiers),
+    stock_count: parseInt(row.stock_count, 10)
+  }));
 }
 
 async function getProductsByCategory(categoryId) {
-  try {
-    const rows = await queryAll(
-      `SELECT p.*, ${SQL_PRODUCTS_STOCK_SUB} FROM products p WHERE p.category_id = ?`,
-      [categoryId]
-    );
-    return rows.map((row) => ({
-      id: row.id,
-      category_id: row.category_id || 0,
-      name: row.name,
-      price: row.price,
-      description: row.description,
-      price_tiers: parsePriceTiersJson(row.price_tiers),
-      stock_count: parseInt(row.stock_count, 10) || 0
-    }));
-  } catch (e) {
-    return [];
-  }
+  const rows = await queryAll(
+    `SELECT p.id, p.category_id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB} 
+     FROM products p WHERE p.category_id = ?`,
+    [categoryId]
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    category_id: row.category_id || 0,
+    name: row.name,
+    price: row.price,
+    description: row.description,
+    price_tiers: parsePriceTiersJson(row.price_tiers),
+    stock_count: parseInt(row.stock_count, 10)
+  }));
 }
 
 async function getProduct(id) {
-  try {
-    const rows = await queryAll(
-      `SELECT p.*, ${SQL_PRODUCTS_STOCK_SUB} FROM products p WHERE p.id = ?`,
-      [id]
-    );
-    if (!rows.length) return null;
-    const row = rows[0];
-    return {
-      id: row.id,
-      category_id: row.category_id || 0,
-      name: row.name,
-      price: row.price,
-      description: row.description,
-      price_tiers: parsePriceTiersJson(row.price_tiers),
-      stock_count: parseInt(row.stock_count, 10) || 0
-    };
-  } catch (e) {
-    return null;
-  }
+  const rows = await queryAll(
+    `SELECT p.id, p.category_id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB}
+     FROM products p WHERE p.id = ?`,
+    [id]
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+  return {
+    id: row.id,
+    category_id: row.category_id || 0,
+    name: row.name,
+    price: row.price,
+    description: row.description,
+    price_tiers: parsePriceTiersJson(row.price_tiers),
+    stock_count: parseInt(row.stock_count, 10)
+  };
 }
 
 async function addProduct(name, price, description = '', categoryId = 0) {
@@ -370,6 +334,10 @@ async function deleteProduct(id) {
   await queryRun('DELETE FROM products WHERE id = ?', [id]);
 }
 
+async function updateProductCategory(productId, categoryId) {
+  await queryRun('UPDATE products SET category_id = ? WHERE id = ?', [categoryId, productId]);
+}
+
 async function addStock(productId, accountData) {
   await queryRun('INSERT INTO stock (product_id, account_data) VALUES (?, ?)', [productId, accountData]);
 }
@@ -383,16 +351,13 @@ async function clearStock(productId) {
 }
 
 async function getAvailableStock(productId) {
-  try {
-    const rows = await queryAll(
-      'SELECT id, product_id, account_data FROM stock WHERE product_id = ? AND is_sold = 0 LIMIT 1',
-      [productId]
-    );
-    if (!rows.length) return null;
-    return { id: rows[0].id, product_id: rows[0].product_id, account_data: rows[0].account_data };
-  } catch (e) {
-    return null;
-  }
+  const rows = await queryAll(
+    'SELECT id, product_id, account_data FROM stock WHERE product_id = ? AND is_sold = 0 LIMIT 1',
+    [productId]
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+  return { id: row.id, product_id: row.product_id, account_data: row.account_data };
 }
 
 async function markStockSold(stockId, buyerId) {
@@ -416,90 +381,79 @@ async function updateOrder(orderId, stockId, status, deliveredData = null) {
   }
 }
 
+async function getOrderById(orderId) {
+  const rows = await queryAll(
+    `SELECT o.*, p.name as product_name 
+     FROM orders o
+     JOIN products p ON o.product_id = p.id
+     WHERE o.id = ?`,
+    [orderId]
+  );
+  return rows[0] || null;
+}
+
 async function getPendingOrders() {
-  try {
-    const rows = await queryAll(`SELECT * FROM orders WHERE status = 'pending'`);
-    return rows
-      .filter(r => r.content)
-      .map((row) => ({
-        id: row.id,
-        userId: row.user_id,
-        productId: row.product_id,
-        chatId: row.chat_id || row.user_id,
-        content: row.content,
-        quantity: parseInt(row.quantity, 10) || 1,
-        totalPrice: parseInt(row.total_price, 10) || 0,
-        createdAt: row.created_at || Date.now()
-      }));
-  } catch (err) {
-    return [];
-  }
+  const rows = await queryAll(`
+    SELECT id, user_id, product_id, chat_id, content, quantity, total_price, created_at
+    FROM orders
+    WHERE status = 'pending' AND content IS NOT NULL
+  `);
+  return rows.map((row) => ({
+    id: row.id,
+    userId: row.user_id,
+    productId: row.product_id,
+    chatId: row.chat_id,
+    content: row.content,
+    quantity: row.quantity,
+    totalPrice: row.total_price,
+    createdAt: row.created_at
+  }));
 }
 
 async function getOrdersByUser(userId) {
-  try {
-    const rows = await queryAll(
-      `SELECT o.*, p.name as product_name
-       FROM orders o
-       JOIN products p ON o.product_id = p.id
-       WHERE o.user_id = ?
-       ORDER BY o.id DESC`,
-      [userId]
-    );
-    return rows.map((row) => ({
-      id: row.id,
-      status: row.status,
-      product_name: row.product_name,
-      total_price: parseInt(row.total_price, 10) || 0,
-      quantity: parseInt(row.quantity, 10) || 1,
-      created_at: row.created_at,
-      delivered_data: row.delivered_data
-    }));
-  } catch (err) {
-    return [];
-  }
+  const rows = await queryAll(
+    `SELECT o.id, o.status, p.name as product_name, o.total_price, o.quantity, o.created_at, o.delivered_data
+     FROM orders o
+     JOIN products p ON o.product_id = p.id
+     WHERE o.user_id = ?
+     ORDER BY o.id DESC`,
+    [userId]
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    status: row.status,
+    product_name: row.product_name,
+    total_price: row.total_price || 0,
+    quantity: row.quantity || 1,
+    created_at: row.created_at,
+    delivered_data: row.delivered_data
+  }));
 }
 
-// Lưu user luôn có balance = 0 nếu thiếu
 async function saveUser(id, firstName, username) {
-  try {
-    if (mode === 'mysql') {
-      await queryRun(
-        'INSERT INTO users (id, first_name, username, balance) VALUES (?, ?, ?, 0) ON DUPLICATE KEY UPDATE first_name = ?, username = ?',
-        [id, firstName || '', username || '', firstName || '', username || '']
-      );
-    } else {
-      const userColumns = sqliteDb.prepare("PRAGMA table_info(users)").all().map(c => c.name);
-      if (userColumns.includes('first_name')) {
-        await queryRun(
-          `INSERT INTO users (id, first_name, username, balance) VALUES (?, ?, ?, 0)
-           ON CONFLICT(id) DO UPDATE SET first_name = excluded.first_name, username = excluded.username`,
-          [id, firstName || '', username || '']
-        );
-      } else {
-        await queryRun(`INSERT OR IGNORE INTO users (id, balance) VALUES (?, 0)`, [id]);
-      }
-    }
-  } catch (e) {
-    try {
-      await queryRun(`INSERT OR IGNORE INTO users (id) VALUES (?)`, [id]);
-    } catch (_) {}
+  if (mode === 'mysql') {
+    await queryRun(
+      'INSERT INTO users (id, first_name, username) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE first_name = ?, username = ?',
+      [id, firstName, username, firstName, username]
+    );
+  } else {
+    await queryRun(
+      `INSERT INTO users (id, first_name, username) VALUES (?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET first_name = excluded.first_name, username = excluded.username`,
+      [id, firstName, username]
+    );
   }
 }
 
 async function getAllUsers() {
-  try {
-    const rows = await queryAll('SELECT * FROM users');
-    return rows.map((row) => ({
-      id: row.id,
-      first_name: row.first_name || row.name || '',
-      username: row.username || '',
-      balance: parseInt(row.balance, 10) || 0,
-      lang: row.lang || 'vi'
-    }));
-  } catch (e) {
-    return [];
-  }
+  const rows = await queryAll('SELECT id, first_name, username, balance, lang FROM users');
+  return rows.map((row) => ({
+    id: row.id,
+    first_name: row.first_name,
+    username: row.username,
+    balance: parseInt(row.balance, 10) || 0,
+    lang: row.lang || 'vi'
+  }));
 }
 
 async function updateProduct(id, name, price, description) {
@@ -512,84 +466,69 @@ async function updatePriceTiers(id, priceTiers) {
 }
 
 async function getStockByProduct(productId) {
-  try {
-    const rows = await queryAll('SELECT id, account_data, is_sold, buyer_id FROM stock WHERE product_id = ?', [productId]);
-    return rows.map((row) => ({
-      id: row.id,
-      account_data: row.account_data,
-      is_sold: row.is_sold,
-      buyer_id: row.buyer_id
-    }));
-  } catch (e) {
-    return [];
-  }
+  const rows = await queryAll('SELECT id, account_data, is_sold, buyer_id FROM stock WHERE product_id = ?', [productId]);
+  return rows.map((row) => ({
+    id: row.id,
+    account_data: row.account_data,
+    is_sold: row.is_sold,
+    buyer_id: row.buyer_id
+  }));
 }
 
 async function getOrderHistory(userId) {
-  try {
-    const rows = await queryAll(
-      `SELECT o.*, p.name as product_name
-       FROM orders o
-       JOIN products p ON o.product_id = p.id
-       WHERE o.user_id = ? AND o.status IN ('completed', 'pending', 'expired', 'cancelled')
-       ORDER BY o.id DESC
-       LIMIT 20`,
-      [userId]
-    );
-    return rows.map((row) => ({
-      id: row.id,
-      status: row.status,
-      product_name: row.product_name,
-      total_price: parseInt(row.total_price, 10) || 0,
-      quantity: parseInt(row.quantity, 10) || 1,
-      created_at: row.created_at,
-      delivered_data: row.delivered_data
-    }));
-  } catch (e) {
-    return [];
-  }
+  const rows = await queryAll(
+    `SELECT o.id, o.status, p.name as product_name, o.total_price, o.quantity, o.created_at, o.delivered_data
+     FROM orders o
+     JOIN products p ON o.product_id = p.id
+     WHERE o.user_id = ? AND o.status IN ('completed', 'pending', 'expired', 'cancelled')
+     ORDER BY o.id DESC
+     LIMIT 20`,
+    [userId]
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    status: row.status,
+    product_name: row.product_name,
+    total_price: row.total_price,
+    quantity: row.quantity,
+    created_at: row.created_at,
+    delivered_data: row.delivered_data
+  }));
 }
 
 async function getRevenue() {
-  try {
-    const rows = await queryAll(`
-      SELECT COUNT(*) as total_orders, COALESCE(SUM(total_price), 0) as total_revenue
-      FROM orders
-      WHERE status = 'completed'
-    `);
-    const row = rows[0] || {};
-    return {
-      total_orders: parseInt(row.total_orders, 10) || 0,
-      total_revenue: parseInt(row.total_revenue, 10) || 0
-    };
-  } catch (e) {
-    return { total_orders: 0, total_revenue: 0 };
-  }
+  const rows = await queryAll(`
+    SELECT COUNT(*) as total_orders, COALESCE(SUM(total_price), 0) as total_revenue
+    FROM orders
+    WHERE status = 'completed'
+  `);
+  const row = rows[0] || {};
+  return {
+    total_orders: parseInt(row.total_orders, 10) || 0,
+    total_revenue: parseInt(row.total_revenue, 10) || 0
+  };
 }
 
 async function getRecentOrders(limit = 20) {
-  try {
-    const rows = await queryAll(
-      `SELECT o.*, p.name as product_name
-       FROM orders o
-       JOIN products p ON o.product_id = p.id
-       ORDER BY o.id DESC
-       LIMIT ?`,
-      [limit]
-    );
-    return rows.map((row) => ({
-      id: row.id,
-      user_id: row.user_id,
-      status: row.status,
-      product_name: row.product_name,
-      total_price: parseInt(row.total_price, 10) || 0,
-      quantity: parseInt(row.quantity, 10) || 1,
-      user_name: 'Khách',
-      created_at: row.created_at
-    }));
-  } catch (e) {
-    return [];
-  }
+  const rows = await queryAll(
+    `SELECT o.id, o.user_id, o.status, p.name, o.total_price, o.quantity, u.first_name, o.created_at
+     FROM orders o
+     JOIN products p ON o.product_id = p.id
+     LEFT JOIN users u ON o.user_id = u.id
+     ORDER BY o.id DESC
+     LIMIT ?`,
+    [limit]
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    user_id: row.user_id,
+    status: row.status,
+    product_name: row.name,
+    total_price: row.total_price,
+    quantity: row.quantity || 1,
+    user_name: row.first_name || 'Unknown',
+    created_at: row.created_at
+  }));
 }
 
 async function keepAlive() {
@@ -602,30 +541,18 @@ async function keepAlive() {
 }
 
 async function getUserLang(userId) {
-  try {
-    const rows = await queryAll('SELECT lang FROM users WHERE id = ?', [userId]);
-    return rows?.[0]?.lang || 'vi';
-  } catch (e) {
-    return 'vi';
-  }
+  const rows = await queryAll('SELECT lang FROM users WHERE id = ?', [userId]);
+  return rows?.[0]?.lang || null;
 }
 
 async function setUserLang(userId, lang) {
-  try {
-    return await queryRun('UPDATE users SET lang = ? WHERE id = ?', [lang, userId]);
-  } catch (e) {
-    return false;
-  }
+  return await queryRun('UPDATE users SET lang = ? WHERE id = ?', [lang, userId]);
 }
 
 async function getUserBalance(userId) {
-  try {
-    const rows = await queryAll('SELECT balance FROM users WHERE id = ?', [userId]);
-    if (!rows || rows.length === 0) return 0;
-    return parseInt(rows[0].balance, 10) || 0;
-  } catch (e) {
-    return 0;
-  }
+  const rows = await queryAll('SELECT balance FROM users WHERE id = ?', [userId]);
+  if (!rows || rows.length === 0) return 0;
+  return parseInt(rows[0].balance, 10) || 0;
 }
 
 async function setUserBalance(userId, amount) {
@@ -653,18 +580,14 @@ async function createDeposit(userId, amount, content) {
 }
 
 async function getPendingDeposits() {
-  try {
-    const rows = await queryAll("SELECT * FROM deposits WHERE status = 'pending'");
-    return rows.map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      amount: parseInt(r.amount, 10) || 0,
-      content: r.content,
-      createdAt: r.created_at
-    }));
-  } catch (e) {
-    return [];
-  }
+  const rows = await queryAll("SELECT id, user_id, amount, content, created_at FROM deposits WHERE status = 'pending'");
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    amount: r.amount,
+    content: r.content,
+    createdAt: r.created_at
+  }));
 }
 
 async function updateDepositStatus(depositId, status) {
@@ -672,25 +595,41 @@ async function updateDepositStatus(depositId, status) {
 }
 
 async function getUserDepositStats(userId) {
-  try {
-    const rowsTotal = await queryAll(
-      "SELECT COALESCE(SUM(amount), 0) AS total FROM deposits WHERE user_id = ? AND status = 'completed'",
-      [userId]
-    );
-    const totalDeposit = parseInt(rowsTotal[0]?.total, 10) || 0;
+  const rowsTotal = await queryAll(
+    "SELECT COALESCE(SUM(amount), 0) AS total FROM deposits WHERE user_id = ? AND status = 'completed'",
+    [userId]
+  );
+  const totalDeposit = parseInt(rowsTotal[0]?.total, 10) || 0;
 
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    const rowsMonth = await queryAll(
-      "SELECT COALESCE(SUM(amount), 0) AS total_month FROM deposits WHERE user_id = ? AND status = 'completed' AND created_at >= ?",
-      [userId, startOfMonth]
-    );
-    const monthDeposit = parseInt(rowsMonth[0]?.total_month, 10) || 0;
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const rowsMonth = await queryAll(
+    "SELECT COALESCE(SUM(amount), 0) AS total_month FROM deposits WHERE user_id = ? AND status = 'completed' AND created_at >= ?",
+    [userId, startOfMonth]
+  );
+  const monthDeposit = parseInt(rowsMonth[0]?.total_month, 10) || 0;
 
-    return { totalDeposit, monthDeposit };
-  } catch (e) {
-    return { totalDeposit: 0, monthDeposit: 0 };
-  }
+  return { totalDeposit, monthDeposit };
+}
+
+// BẢNG XẾP HẠNG TOP NẠP TIỀN
+async function getTopDeposits(limit = 10) {
+  const rows = await queryAll(`
+    SELECT u.id, u.first_name, u.username, COALESCE(SUM(d.amount), 0) AS total_deposited
+    FROM deposits d
+    JOIN users u ON d.user_id = u.id
+    WHERE d.status = 'completed'
+    GROUP BY u.id, u.first_name, u.username
+    ORDER BY total_deposited DESC
+    LIMIT ?
+  `, [limit]);
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.first_name || 'Khách',
+    username: r.username || '',
+    total: parseInt(r.total_deposited, 10) || 0
+  }));
 }
 
 module.exports = {
@@ -704,6 +643,7 @@ module.exports = {
   getProduct,
   addProduct,
   deleteProduct,
+  updateProductCategory,
   addStock,
   deleteStock,
   clearStock,
@@ -711,6 +651,7 @@ module.exports = {
   markStockSold,
   createOrder,
   updateOrder,
+  getOrderById,
   getOrdersByUser,
   getPendingOrders,
   saveUser,
@@ -733,6 +674,6 @@ module.exports = {
   updateDepositStatus,
   getUserDepositStats,
   getUserLang,
-  setUserLang
+  setUserLang,
+  getTopDeposits
 };
-

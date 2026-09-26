@@ -1,3 +1,4 @@
+
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
@@ -133,6 +134,8 @@ function initSqlite() {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   sqliteDb = new Database(config.SQLITE_PATH);
   sqliteDb.pragma('journal_mode = WAL');
+
+  // Khởi tạo các bảng nếu chưa có
   sqliteDb.exec(`
     CREATE TABLE IF NOT EXISTS categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -189,18 +192,26 @@ function initSqlite() {
     CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
   `);
 
-  // Bổ sung đầy đủ tất cả các cột nếu database cũ bị thiếu
-  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN first_name TEXT;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN username TEXT;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'vi';`); } catch (_) {}
+  // Kiểm tra chi tiết và thêm các cột còn thiếu trong DB cũ
+  try {
+    const userColumns = sqliteDb.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+    if (!userColumns.includes('first_name')) sqliteDb.exec(`ALTER TABLE users ADD COLUMN first_name TEXT;`);
+    if (!userColumns.includes('username')) sqliteDb.exec(`ALTER TABLE users ADD COLUMN username TEXT;`);
+    if (!userColumns.includes('balance')) sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`);
+    if (!userColumns.includes('lang')) sqliteDb.exec(`ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'vi';`);
 
-  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN chat_id INTEGER;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN content TEXT;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN total_price INTEGER DEFAULT 0;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN delivered_data TEXT;`); } catch (_) {}
-  try { sqliteDb.exec(`ALTER TABLE products ADD COLUMN category_id INTEGER DEFAULT 0;`); } catch (_) {}
+    const orderColumns = sqliteDb.prepare("PRAGMA table_info(orders)").all().map(c => c.name);
+    if (!orderColumns.includes('chat_id')) sqliteDb.exec(`ALTER TABLE orders ADD COLUMN chat_id INTEGER;`);
+    if (!orderColumns.includes('content')) sqliteDb.exec(`ALTER TABLE orders ADD COLUMN content TEXT;`);
+    if (!orderColumns.includes('quantity')) sqliteDb.exec(`ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1;`);
+    if (!orderColumns.includes('total_price')) sqliteDb.exec(`ALTER TABLE orders ADD COLUMN total_price INTEGER DEFAULT 0;`);
+    if (!orderColumns.includes('delivered_data')) sqliteDb.exec(`ALTER TABLE orders ADD COLUMN delivered_data TEXT;`);
+
+    const prodColumns = sqliteDb.prepare("PRAGMA table_info(products)").all().map(c => c.name);
+    if (!prodColumns.includes('category_id')) sqliteDb.exec(`ALTER TABLE products ADD COLUMN category_id INTEGER DEFAULT 0;`);
+  } catch (err) {
+    console.log("Migration check warning:", err.message);
+  }
 }
 
 async function initDB() {
@@ -260,12 +271,16 @@ function getUnitPrice(product, quantity) {
 
 // ========== CATEGORIES ==========
 async function getAllCategories() {
-  const rows = await queryAll(`
-    SELECT c.id, c.name, c.description,
-    (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) as product_count
-    FROM categories c
-  `);
-  return rows.map(r => ({ id: r.id, name: r.name, description: r.description, product_count: parseInt(r.product_count, 10) || 0 }));
+  try {
+    const rows = await queryAll(`
+      SELECT c.id, c.name, c.description,
+      (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) as product_count
+      FROM categories c
+    `);
+    return rows.map(r => ({ id: r.id, name: r.name, description: r.description, product_count: parseInt(r.product_count, 10) || 0 }));
+  } catch (_) {
+    return [];
+  }
 }
 
 async function getCategory(id) {
@@ -416,7 +431,7 @@ async function getOrdersByUser(userId) {
   }
 }
 
-// Hàm lưu User được bọc an toàn: tự bắt trường hợp bảng cũ
+// Hàm lưu User an toàn tuyệt đối
 async function saveUser(id, firstName, username) {
   try {
     if (mode === 'mysql') {
@@ -425,17 +440,19 @@ async function saveUser(id, firstName, username) {
         [id, firstName || '', username || '', firstName || '', username || '']
       );
     } else {
-      await queryRun(
-        `INSERT INTO users (id, first_name, username) VALUES (?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET first_name = excluded.first_name, username = excluded.username`,
-        [id, firstName || '', username || '']
-      );
+      const userColumns = sqliteDb.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+      if (userColumns.includes('first_name')) {
+        await queryRun(
+          `INSERT INTO users (id, first_name, username) VALUES (?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET first_name = excluded.first_name, username = excluded.username`,
+          [id, firstName || '', username || '']
+        );
+      } else {
+        await queryRun(`INSERT OR IGNORE INTO users (id) VALUES (?)`, [id]);
+      }
     }
   } catch (e) {
-    // Nếu bảng cũ dùng tên cột khác (ví dụ: name)
-    try {
-      await queryRun(`INSERT OR REPLACE INTO users (id) VALUES (?)`, [id]);
-    } catch (_) {}
+    console.log("saveUser fallback:", e.message);
   }
 }
 

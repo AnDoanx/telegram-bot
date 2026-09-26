@@ -493,7 +493,7 @@ async function createDeposit(userId, amount, content) {
     'INSERT INTO deposits (user_id, amount, content, status, created_at) VALUES (?, ?, ?, ?, ?)',
     [userId, amount, content, 'pending', createdAt]
   );
-  return { insertId: result.insertId, createdAt };
+  return { id: result.insertId, createdAt };
 }
 
 async function getPendingDeposits() {
@@ -509,6 +509,25 @@ async function getPendingDeposits() {
 
 async function updateDepositStatus(depositId, status) {
   await queryRun('UPDATE deposits SET status = ? WHERE id = ?', [status, depositId]);
+}
+
+// Lấy danh sách Top nạp tiền nhiều nhất
+async function getTopDepositors(limit = 10) {
+  const sql = `
+    SELECT d.user_id, COALESCE(u.first_name, 'Khách giấu tên') as first_name, SUM(d.amount) as total_deposited
+    FROM deposits d
+    LEFT JOIN users u ON d.user_id = u.id
+    WHERE d.status = 'completed'
+    GROUP BY d.user_id, u.first_name
+    ORDER BY total_deposited DESC
+    LIMIT ?
+  `;
+  const rows = await queryAll(sql, [limit]);
+  return rows.map(r => ({
+    userId: r.user_id,
+    firstName: r.first_name,
+    totalDeposited: parseInt(r.total_deposited, 10) || 0
+  }));
 }
 
 module.exports = {
@@ -543,5 +562,6 @@ module.exports = {
   deductBalance,
   createDeposit,
   getPendingDeposits,
-  updateDepositStatus
+  updateDepositStatus,
+  getTopDepositors
 };

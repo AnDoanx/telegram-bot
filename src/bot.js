@@ -1,27 +1,3 @@
-
-// Lấy Top nạp tiền (mặc định lấy Top 10)
-async function getTopDeposits(limit = 10) {
-  const rows = await queryAll(`
-    SELECT u.id, u.first_name, u.username, COALESCE(SUM(d.amount), 0) AS total_deposited
-    FROM deposits d
-    JOIN users u ON d.user_id = u.id
-    WHERE d.status = 'completed'
-    GROUP BY u.id, u.first_name, u.username
-    ORDER BY total_deposited DESC
-    LIMIT ?
-  `, [limit]);
-
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.first_name || 'Khách',
-    username: r.username || '',
-    total: parseInt(r.total_deposited, 10) || 0
-  }));
-}
-
-(Thêm getTopDeposits vào khối module.exports ở cuối file src/database.js).
-Bước 2: Toàn bộ code src/bot.js chuẩn có nút 🏆 Top Nạp
-Nút 🏆 Top Nạp đã được đặt ngay tại Menu chính (chung hàng với Nạp tiền vào ví), bấm vào sẽ hiển thị danh sách vinh danh các đại gia nạp tiền nhiều nhất shop với huy chương 🥇 🥈 🥉 cực đẹp mắt:
 const TelegramBot = require('node-telegram-bot-api');
 const config = require('./config');
 const db = require('./database');
@@ -300,7 +276,6 @@ ${t.choose_category}`;
   const categories = await db.getAllCategories();
   const keyboard = [];
 
-  // CHỈ HIỆN DUY NHẤT CÁC THƯ MỤC
   if (categories.length > 0) {
     categories.forEach(c => {
       keyboard.push([{
@@ -315,19 +290,16 @@ ${t.choose_category}`;
     }]);
   }
 
-  // HÀNG 1: Nạp tiền & Top Nạp (BXH)
   keyboard.push([
     { text: wideInlineLabel(t.btn_deposit), callback_data: 'deposit_menu' },
     { text: wideInlineLabel(t.btn_top), callback_data: 'view_top_deposits' }
   ]);
 
-  // HÀNG 2: Hồ sơ & Lịch sử
   keyboard.push([
     { text: wideInlineLabel(t.btn_profile), callback_data: 'main_profile' },
     { text: wideInlineLabel(t.btn_history), callback_data: 'main_history' }
   ]);
 
-  // HÀNG 3: Đổi ngôn ngữ
   keyboard.push([
     { text: wideInlineLabel(t.btn_change_lang), callback_data: 'change_language' }
   ]);
@@ -394,7 +366,6 @@ async function startBot() {
 
   bot.on('polling_error', (err) => console.log('Polling error:', err.message));
 
-  // Tự động kiểm tra SePay
   setInterval(async () => {
     if (pendingOrders.size === 0 && pendingDeposits.size === 0) return;
 
@@ -473,7 +444,6 @@ async function startBot() {
     }
   }, 25000);
 
-  // Khi bấm /start
   bot.onText(/\/start/, async (msg) => {
     const userId = msg.from.id;
     await db.saveUser(userId, getFullName(msg.from), msg.from.username || '');
@@ -498,7 +468,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
   });
 
-  // Admin Commands
   bot.onText(/\/categories/, async (msg) => {
     if (!isAdmin(msg.from.id)) return;
     const categories = await db.getAllCategories();
@@ -600,6 +569,51 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     });
   });
 
+  // ========== LỆNH /broadcast CHUẨN ==========
+  bot.onText(/^\/broadcast$/, async (msg) => {
+    if (!isAdmin(msg.from.id)) return;
+    const users = await db.getAllUsers();
+    waitingEdit.set(msg.from.id, { field: 'broadcast' });
+    const text = '📣 <b>GỬI THÔNG BÁO TẤT CẢ KHÁCH HÀNG</b>\n' +
+                 '━━━━━━━━━━━━━━━━━━━━━\n\n' +
+                 '👥 Sẽ gửi đến: <b>' + users.length + '</b> khách hàng\n\n' +
+                 '✏️ Hãy nhắn nội dung bạn muốn thông báo vào đây:';
+    bot.sendMessage(msg.chat.id, text, {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [[{ text: wideInlineLabel('❌ Hủy bỏ'), callback_data: 'cancel_broadcast' }]] }
+    });
+  });
+
+  bot.onText(/\/broadcast (.+)/s, async (msg, match) => {
+    if (!isAdmin(msg.from.id)) return;
+    const content = match[1].trim();
+    if (!content) return;
+
+    const users = await db.getAllUsers();
+    bot.sendMessage(msg.chat.id, '⏳ Đang gửi thông báo tới ' + users.length + ' người dùng...');
+
+    let sent = 0, failed = 0;
+    for (const user of users) {
+      try {
+        await bot.sendMessage(user.id, `📢 <b>THÔNG BÁO TỪ SHOP:</b>\n\n${content}`, {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[{ text: wideInlineLabel('🛒 Mở Menu Cửa Hàng'), callback_data: 'back_main' }]]
+          }
+        });
+        sent++;
+      } catch (e) {
+        failed++;
+      }
+    }
+
+    const text = '✅ <b>ĐÃ GỬI THÔNG BÁO HOÀN TẤT</b>\n' +
+                 '━━━━━━━━━━━━━━━━━━━━━\n\n' +
+                 '🎯 Gửi thành công: <b>' + sent + '</b>\n' +
+                 '⚠️ Bị chặn/Thất bại: <b>' + failed + '</b>';
+    bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
+  });
+
   async function createDepositQR(chatId, userFrom, amount, oldMessageId) {
     const userTgId = userFrom.id;
     const content = generateCode('NAP');
@@ -637,7 +651,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     notifyAllAdmins(bot, adminMsg);
   }
 
-  // Xử lý nút bấm Callback
   bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const userId = query.from.id;
@@ -646,6 +659,11 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     try {
       if (data === 'none') {
         return bot.answerCallbackQuery(query.id);
+      }
+
+      if (data === 'cancel_broadcast') {
+        waitingEdit.delete(userId);
+        return bot.editMessageText('❌ Đã hủy bỏ thao tác gửi thông báo.', { chat_id: chatId, message_id: query.message.message_id });
       }
 
       if (data === 'set_lang_vi' || data === 'set_lang_en') {
@@ -673,7 +691,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
         });
       }
 
-      // ==================== BẢNG XẾP HẠNG TOP NẠP ====================
       if (data === 'view_top_deposits') {
         let topList = [];
         if (db.getTopDeposits) {
@@ -716,7 +733,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
         });
       }
 
-      // Xem thư mục
       if (data.startsWith('view_category_')) {
         const catId = parseInt(data.split('_')[2]);
         const cat = await db.getCategory(catId);
@@ -738,7 +754,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
         return bot.editMessageText(text, { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
       }
 
-      // Chi tiết sản phẩm
       if (data.startsWith('product_')) {
         const product = await db.getProduct(parseInt(data.split('_')[1]));
         if (!product) return bot.answerCallbackQuery(query.id, { text: 'Sản phẩm không tồn tại!' });
@@ -1386,7 +1401,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     bot.answerCallbackQuery(query.id).catch(() => {});
   });
 
-  // Message Handler Admin
   bot.on('message', async (msg) => {
     if (!msg.text || msg.text.startsWith('/') || !isAdmin(msg.from.id)) return;
 
@@ -1416,6 +1430,35 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
 
     const editInfo = waitingEdit.get(msg.from.id);
     if (!editInfo) return;
+
+    // Gửi thông báo /broadcast (khi nhập text sau khi bấm lệnh)
+    if (editInfo.field === 'broadcast') {
+      waitingEdit.delete(msg.from.id);
+      const users = await db.getAllUsers();
+      let sent = 0, failed = 0;
+
+      bot.sendMessage(msg.chat.id, '⏳ Đang gửi thông báo đến ' + users.length + ' khách hàng...');
+
+      for (const user of users) {
+        try {
+          await bot.sendMessage(user.id, `📢 <b>THÔNG BÁO TỪ SHOP:</b>\n\n${msg.text}`, {
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [[{ text: wideInlineLabel('🛒 Mở Menu Cửa Hàng'), callback_data: 'back_main' }]]
+            }
+          });
+          sent++;
+        } catch (e) {
+          failed++;
+        }
+      }
+
+      const text = '✅ <b>ĐÃ GỬI THÔNG BÁO HOÀN TẤT</b>\n' +
+                   '━━━━━━━━━━━━━━━━━━━━━\n\n' +
+                   '🎯 Thành công: <b>' + sent + '</b>\n' +
+                   '⚠️ Thất bại/Chặn bot: <b>' + failed + '</b>';
+      return bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
+    }
 
     if (editInfo.field === 'new_category') {
       const parts = msg.text.split('|').map(s => s.trim());
@@ -1499,7 +1542,6 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     return bot.sendMessage(msg.chat.id, `✅ Đã lưu cập nhật cho sản phẩm #${editInfo.productId}!`);
   });
 
-  // Message Handler User
   bot.on('message', async (msg) => {
     if (!msg.text || msg.text.startsWith('/')) return;
     const editInfo = waitingEdit.get(msg.from.id);
@@ -1559,9 +1601,7 @@ Vui lòng chọn ngôn ngữ để bắt đầu:
     }
   });
 
-  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với BXH Top Nạp!');
+  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy!');
 }
 
 startBot().catch(console.error);
-
-

@@ -46,8 +46,16 @@ async function initMysql() {
   try {
     await connection.ping();
     await connection.query(`
+      CREATE TABLE IF NOT EXISTS categories (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        name VARCHAR(255) NOT NULL,
+        description TEXT
+      )
+    `);
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS products (
         id INT PRIMARY KEY AUTO_INCREMENT,
+        category_id INT DEFAULT 0,
         name VARCHAR(255) NOT NULL,
         price INT NOT NULL,
         description TEXT,
@@ -104,6 +112,7 @@ async function initMysql() {
       )
     `);
 
+    try { await connection.query(`ALTER TABLE products ADD COLUMN category_id INT DEFAULT 0`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN balance BIGINT DEFAULT 0`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN lang VARCHAR(10) DEFAULT 'vi'`); } catch (_) {}
     try { await connection.query(`ALTER TABLE orders ADD COLUMN delivered_data TEXT`); } catch (_) {}
@@ -119,8 +128,14 @@ function initSqlite() {
   sqliteDb = new Database(config.SQLITE_PATH);
   sqliteDb.pragma('journal_mode = WAL');
   sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT
+    );
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category_id INTEGER DEFAULT 0,
       name TEXT NOT NULL,
       price INTEGER NOT NULL,
       description TEXT,
@@ -168,6 +183,7 @@ function initSqlite() {
     CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
   `);
 
+  try { sqliteDb.exec(`ALTER TABLE products ADD COLUMN category_id INTEGER DEFAULT 0;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'vi';`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN delivered_data TEXT;`); } catch (_) {}
@@ -181,23 +197,17 @@ async function initDB() {
     try {
       await initMysql();
       mode = 'mysql';
-      console.log('📦 Database: MySQL (' + config.MYSQL_HOST + ':' + config.MYSQL_PORT + '/' + config.MYSQL_DATABASE + ')');
+      console.log('📦 Database: MySQL');
       return;
     } catch (err) {
-      if (onlyMysql) {
-        console.error('❌ MySQL bắt buộc nhưng không kết nối được:', err.message);
-        throw err;
-      }
-      if (pool) {
-        try { await pool.end(); } catch (_) { }
-        pool = null;
-      }
+      if (onlyMysql) throw err;
+      if (pool) { try { await pool.end(); } catch (_) { } pool = null; }
     }
   }
 
   initSqlite();
   mode = 'sqlite';
-  console.log('📦 Database: SQLite (file ' + config.SQLITE_PATH + ')');
+  console.log('📦 Database: SQLite');
 }
 
 function parsePriceTiersJson(raw) {
@@ -205,14 +215,10 @@ function parsePriceTiersJson(raw) {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) return null;
-    const normalized = parsed
+    return parsed
       .map((t) => ({ min: parseInt(t.min, 10), price: parseInt(t.price, 10) }))
-      .filter((t) => !isNaN(t.min) && t.min >= 1 && !isNaN(t.price) && t.price >= 0);
-    if (!normalized.length) return null;
-    normalized.sort((a, b) => a.min - b.min);
-    const byMin = new Map();
-    normalized.forEach((t) => byMin.set(t.min, t));
-    return Array.from(byMin.values()).sort((a, b) => a.min - b.min);
+      .filter((t) => !isNaN(t.min) && t.min >= 1 && !isNaN(t.price) && t.price >= 0)
+      .sort((a, b) => a.min - b.min);
   } catch {
     return null;
   }
@@ -238,12 +244,56 @@ function getUnitPrice(product, quantity) {
   return effectiveUnitPrice(product, quantity);
 }
 
+// ========== CATEGORIES ==========
+async function getAllCategories() {
+  const rows = await queryAll(`
+    SELECT c.id, c.name, c.description,
+    (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) as product_count
+    FROM categories c
+  `);
+  return rows.map(r => ({ id: r.id, name: r.name, description: r.description, product_count: parseInt(r.product_count, 10) || 0 }));
+}
+
+async function getCategory(id) {
+  const rows = await queryAll('SELECT * FROM categories WHERE id = ?', [id]);
+  return rows[0] || null;
+}
+
+async function addCategory(name, description = '') {
+  const res = await queryRun('INSERT INTO categories (name, description) VALUES (?, ?)', [name, description]);
+  return { lastInsertRowid: res.insertId };
+}
+
+async function deleteCategory(id) {
+  await queryRun('UPDATE products SET category_id = 0 WHERE category_id = ?', [id]);
+  await queryRun('DELETE FROM categories WHERE id = ?', [id]);
+}
+
+// ========== PRODUCTS ==========
 async function getAllProducts() {
   const rows = await queryAll(
-    `SELECT p.id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB} FROM products p`
+    `SELECT p.id, p.category_id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB} FROM products p`
   );
   return rows.map((row) => ({
     id: row.id,
+    category_id: row.category_id || 0,
+    name: row.name,
+    price: row.price,
+    description: row.description,
+    price_tiers: parsePriceTiersJson(row.price_tiers),
+    stock_count: parseInt(row.stock_count, 10)
+  }));
+}
+
+async function getProductsByCategory(categoryId) {
+  const rows = await queryAll(
+    `SELECT p.id, p.category_id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB} 
+     FROM products p WHERE p.category_id = ?`,
+    [categoryId]
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    category_id: row.category_id || 0,
     name: row.name,
     price: row.price,
     description: row.description,
@@ -254,7 +304,7 @@ async function getAllProducts() {
 
 async function getProduct(id) {
   const rows = await queryAll(
-    `SELECT p.id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB}
+    `SELECT p.id, p.category_id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB}
      FROM products p WHERE p.id = ?`,
     [id]
   );
@@ -262,6 +312,7 @@ async function getProduct(id) {
   const row = rows[0];
   return {
     id: row.id,
+    category_id: row.category_id || 0,
     name: row.name,
     price: row.price,
     description: row.description,
@@ -270,10 +321,10 @@ async function getProduct(id) {
   };
 }
 
-async function addProduct(name, price, description = '') {
+async function addProduct(name, price, description = '', categoryId = 0) {
   const result = await queryRun(
-    'INSERT INTO products (name, price, description) VALUES (?, ?, ?)',
-    [name, price, description]
+    'INSERT INTO products (name, price, description, category_id) VALUES (?, ?, ?, ?)',
+    [name, price, description, categoryId]
   );
   return { lastInsertRowid: result.insertId };
 }
@@ -478,17 +529,12 @@ async function getRecentOrders(limit = 20) {
 
 async function keepAlive() {
   try {
-    if (mode === 'mysql') {
-      await pool.query('SELECT 1');
-    } else if (sqliteDb) {
-      sqliteDb.prepare('SELECT 1').get();
-    }
+    if (mode === 'mysql') await pool.query('SELECT 1');
+    else if (sqliteDb) sqliteDb.prepare('SELECT 1').get();
   } catch (error) {
     console.error('❌ Database keep-alive failed:', error.message);
   }
 }
-
-// ==================== CÀI ĐẶT NGÔN NGỮ (VI / EN) ====================
 
 async function getUserLang(userId) {
   const rows = await queryAll('SELECT lang FROM users WHERE id = ?', [userId]);
@@ -498,8 +544,6 @@ async function getUserLang(userId) {
 async function setUserLang(userId, lang) {
   return await queryRun('UPDATE users SET lang = ? WHERE id = ?', [lang, userId]);
 }
-
-// ==================== XỬ LÝ SỐ DƯ & VÍ ====================
 
 async function getUserBalance(userId) {
   const rows = await queryAll('SELECT balance FROM users WHERE id = ?', [userId]);
@@ -521,8 +565,6 @@ async function deductBalance(userId, amount) {
   const val = parseInt(amount, 10) || 0;
   return await queryRun('UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?', [val, userId, val]);
 }
-
-// ==================== HỆ THỐNG NẠP TIỀN ====================
 
 async function createDeposit(userId, amount, content) {
   const createdAt = Date.now();
@@ -548,8 +590,6 @@ async function updateDepositStatus(depositId, status) {
   await queryRun('UPDATE deposits SET status = ? WHERE id = ?', [status, depositId]);
 }
 
-// ==================== THỐNG KÊ TỔNG NẠP ====================
-
 async function getUserDepositStats(userId) {
   const rowsTotal = await queryAll(
     "SELECT COALESCE(SUM(amount), 0) AS total FROM deposits WHERE user_id = ? AND status = 'completed'",
@@ -570,7 +610,12 @@ async function getUserDepositStats(userId) {
 
 module.exports = {
   initDB,
+  getAllCategories,
+  getCategory,
+  addCategory,
+  deleteCategory,
   getAllProducts,
+  getProductsByCategory,
   getProduct,
   addProduct,
   deleteProduct,

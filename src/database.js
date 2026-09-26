@@ -112,12 +112,13 @@ async function initMysql() {
       )
     `);
 
-    // Tự động kiểm tra và nâng cấp cấu trúc bảng nếu database cũ bị thiếu
     try { await connection.query(`ALTER TABLE products ADD COLUMN category_id INT DEFAULT 0`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN balance BIGINT DEFAULT 0`); } catch (_) {}
     try { await connection.query(`ALTER TABLE users ADD COLUMN lang VARCHAR(10) DEFAULT 'vi'`); } catch (_) {}
     try { await connection.query(`ALTER TABLE orders ADD COLUMN chat_id BIGINT`); } catch (_) {}
     try { await connection.query(`ALTER TABLE orders ADD COLUMN content TEXT`); } catch (_) {}
+    try { await connection.query(`ALTER TABLE orders ADD COLUMN quantity INT DEFAULT 1`); } catch (_) {}
+    try { await connection.query(`ALTER TABLE orders ADD COLUMN total_price INT DEFAULT 0`); } catch (_) {}
     try { await connection.query(`ALTER TABLE orders ADD COLUMN delivered_data TEXT`); } catch (_) {}
   } finally {
     connection.release();
@@ -161,7 +162,7 @@ function initSqlite() {
       chat_id INTEGER,
       content TEXT,
       quantity INTEGER DEFAULT 1,
-      total_price INTEGER,
+      total_price INTEGER DEFAULT 0,
       delivered_data TEXT,
       created_at INTEGER
     );
@@ -186,9 +187,11 @@ function initSqlite() {
     CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
   `);
 
-  // Tự động kiểm tra và thêm cột nếu database cũ chưa có (xử lý triệt để lỗi thiếu cột)
+  // Bù đắp tất cả các cột có thể thiếu từ database phiên bản cũ
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN chat_id INTEGER;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN content TEXT;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1;`); } catch (_) {}
+  try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN total_price INTEGER DEFAULT 0;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN delivered_data TEXT;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE products ADD COLUMN category_id INTEGER DEFAULT 0;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0;`); } catch (_) {}
@@ -406,8 +409,8 @@ async function getPendingOrders() {
     productId: row.product_id,
     chatId: row.chat_id,
     content: row.content,
-    quantity: row.quantity,
-    totalPrice: row.total_price,
+    quantity: row.quantity || 1,
+    totalPrice: row.total_price || 0,
     createdAt: row.created_at
   }));
 }
@@ -491,8 +494,8 @@ async function getOrderHistory(userId) {
     id: row.id,
     status: row.status,
     product_name: row.product_name,
-    total_price: row.total_price,
-    quantity: row.quantity,
+    total_price: row.total_price || 0,
+    quantity: row.quantity || 1,
     created_at: row.created_at,
     delivered_data: row.delivered_data
   }));
@@ -526,7 +529,7 @@ async function getRecentOrders(limit = 20) {
     user_id: row.user_id,
     status: row.status,
     product_name: row.name,
-    total_price: row.total_price,
+    total_price: row.total_price || 0,
     quantity: row.quantity || 1,
     user_name: row.first_name || 'Unknown',
     created_at: row.created_at

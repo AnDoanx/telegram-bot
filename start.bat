@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 > nul
-title 👾 [KEM BOT SHOP] - TELEGRAM AUTOMATION CORE
+title [KEM BOT SHOP] - TELEGRAM AUTOMATION CORE
 set THEME_COLOR=0B
 color %THEME_COLOR%
 cls
@@ -14,39 +14,36 @@ echo    █████╔╝ █████╗  ██╔████╔██
 echo    ██╔═██╗ ██╔══╝  ██║╚██╔╝██║    ██╔══██╗██║   ██║   ██║       ╚════██║██╔══██║██║   ██║██╔═══╝ 
 echo    ██║  ██╗███████╗██║ ╚═╝ ██║    ██████╔╝╚██████╔╝   ██║       ███████║██║  ██║╚██████╔╝██║     
 echo    ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝    ╚═════╝  ╚═════╝    ╚═╝       ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝     
-echo   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-echo               ✦ KEM BOT SHOP - TELEGRAM AUTOMATED SYSTEM v2.5 ✦
-echo   ──────────────────────────────────────────────────────────────────────────────────────────
+echo   ......................................................................................................
+echo               + KEM BOT SHOP - TELEGRAM AUTOMATED SYSTEM v2.5 +
+echo   ------------------------------------------------------------------------------------------
 echo.
-echo    [1] 🚀 Khởi chạy Bot ngay
-echo    [2] 🎨 Đổi màu giao diện (Color Themes)
-echo    [3] ❌ Thoát
+echo    [1] Khởi chạy Bot ngay
+echo    [2] Đổi màu giao diện (Color Themes)
+echo    [3] Thoát
 echo.
-set /p OPT="  👉 Chọn thao tác [1/2/3]: "
+set /p OPT="  >> Chọn thao tác (1/2/3): "
 
 if "%OPT%"=="1" goto RUN_BOT
 if "%OPT%"=="2" goto COLOR_SETTINGS
 if "%OPT%"=="3" exit /b
 goto MAIN_MENU
 
-:: ========================================
-:: MENU ĐỔI MÀU GIAO DIỆN
-:: ========================================
 :COLOR_SETTINGS
 cls
 echo.
-echo    ┌────────────────────────────────────────────────────────────┐
-echo    │             🎨 BẢNG CHỌN MÀU THEME RETRO PIXEL            │
-echo    └────────────────────────────────────────────────────────────┘
+echo    ------------------------------------------------------------
+echo                  BANG CHON MAU GIAO DIEN
+echo    ------------------------------------------------------------
 echo.
-echo    [1] 💧 Cyan Neon (Mặc định)
-echo    [2] 💚 Hacker Green (Xanh lá Matrix)
-echo    [3] 💜 Cyberpunk Purple (Tím neon)
-echo    [4] 💛 Retro Amber (Vàng hổ phách)
-echo    [5] 🤍 High-Tech White (Trắng sáng)
-echo    [6] ◀️  Quay lại Menu chính
+echo    [1] Cyan Neon (Mac dinh)
+echo    [2] Hacker Green (Xanh la)
+echo    [3] Cyberpunk Purple (Tim neon)
+echo    [4] Retro Amber (Vang ho phach)
+echo    [5] High-Tech White (Trang sang)
+echo    [6] Quay lai Menu chinh
 echo.
-set /p C_OPT="  👉 Chọn màu bạn thích [1-6]: "
+set /p C_OPT="  >> Chon mau ban thich (1-6): "
 
 if "%C_OPT%"=="1" set THEME_COLOR=0B
 if "%C_OPT%"=="2" set THEME_COLOR=0A
@@ -58,82 +55,79 @@ if "%C_OPT%"=="6" goto MAIN_MENU
 color %THEME_COLOR%
 goto MAIN_MENU
 
-:: ========================================
-:: TIẾN TRÌNH KHỞI CHẠY BOT
-:: ========================================
 :RUN_BOT
 cls
 echo.
-echo    ✦ KEM BOT SHOP - HỆ THỐNG ĐANG KHỞI ĐỘNG...
-echo   ────────────────────────────────────────────────────────────
+echo    + KEM BOT SHOP - HE THONG DANG KHOI DONG...
+echo   ------------------------------------------------------------
 
-:: 1. Kiểm tra Node.js
+:: 1. Kiem tra Node.js
 where node >nul 2>nul
 if %errorlevel% neq 0 (
     color 0C
-    echo   [✖] LỖI: Máy tính chưa cài đặt Node.js!
-    echo   [!] Tải và cài đặt tại: https://nodejs.org/
+    echo   [X] LOI: May tinh chua cai dat Node.js!
+    echo   [!] Tai va cai dat tai: https://nodejs.org/
     echo.
     pause
     exit /b
 )
 
 for /f "tokens=*" %%v in ('node -v') do set NODE_VER=%%v
-echo   [◆] CORE RUNTIME : Node.js %NODE_VER% [OK]
+echo   [OK] CORE RUNTIME : Node.js %NODE_VER%
 
-:: 2. Kiểm tra file .env
+:: 2. Kiem tra file .env
 if not exist ".env" (
     color 0E
-    echo   [▲] CẢNH BÁO: Chưa tìm thấy file [.env]
+    echo   [!] CANH BAO: Chua tim thay file .env
     if exist ".env.example" (
         copy .env.example .env > nul
-        echo   [+] Đã tự tạo file [.env] từ [.env.example]
-        echo   [!] Vui lòng mở file .env nhập Bot Token và API rồi chạy lại!
+        echo   [+] Da tu tao file .env tu .env.example
+        echo   [!] Vui long mo file .env nhap Bot Token va API roi chay lai!
     ) else (
-        echo   [✖] Không tìm thấy file mẫu .env.example!
+        echo   [X] Khong tim thay file mau .env.example!
     )
     echo.
     pause
     exit /b
 )
-echo   [◆] CONFIG FILE  : .env loaded [OK]
+echo   [OK] CONFIG FILE  : .env loaded
 
-:: 3. Kiểm tra Dependencies
+:: 3. Kiem tra Dependencies
 if not exist "node_modules\" (
     echo.
-    echo   ┌────────────────────────────────────────────────────────────┐
-    echo   │ [!] PHÁT HIỆN THIẾU THƯ VIỆN -> ĐANG TỰ CÀI ĐẶT...        │
-    echo   └────────────────────────────────────────────────────────────┘
+    echo   ------------------------------------------------------------
+    echo    [!] PHAT HIEN THIEU THU VIEN - DANG TU CAI DAT...
+    echo   ------------------------------------------------------------
     echo.
     call npm install
     if %errorlevel% neq 0 (
         color 0C
-        echo   [✖] Cài đặt dependencies thất bại! Kiểm tra mạng.
+        echo   [X] Cai dat dependencies that bai! Kiem tra mang.
         pause
         exit /b
     )
     cls
 )
 
-:: 4. Hiệu ứng khởi động
-echo   [◆] STATUS       : INITIALIZING KEM BOT ENGINE...
+:: 4. Tien trinh khoi chay
+echo   [OK] STATUS       : INITIALIZING KEM BOT ENGINE...
 echo.
-echo   [██████████████████████████████████████████████████] 100%%
+echo   [==================================================] 100%%
 echo.
-echo   ┌────────────────────────────────────────────────────────────┐
-echo   │  🎮 KEM BOT SHOP ĐÃ SẴN SÀNG HOẠT ĐỘNG!                    │
-echo   │  💡 Nhấn phím [Ctrl + C] nếu muốn tạm dừng Bot             │
-echo   └────────────────────────────────────────────────────────────┘
+echo   ------------------------------------------------------------
+echo    * KEM BOT SHOP DA SAN SANG HOAT DONG!
+echo    * Nhan phim [Ctrl + C] neu muon tam dung Bot
+echo   ------------------------------------------------------------
 echo.
 
 node src/bot.js
 
-:: 5. Xử lý khi ngắt hoặc gặp lỗi
+:: 5. Xu ly khi ngat hoac gap loi
 echo.
-echo   ────────────────────────────────────────────────────────────
+echo   ------------------------------------------------------------
 color 0C
-echo   [✖] TIẾN TRÌNH BOT ĐÃ DỪNG HOẶC GẶP SỰ CỐ!
-echo   [!] Vui lòng kiểm tra lại log lỗi bên trên trước khi tắt.
-echo   ────────────────────────────────────────────────────────────
+echo   [X] TIEN TRINH BOT DA DUNG HOAC GAP SU CO!
+echo   [!] Vui long kiem tra lai log loi ben tren truoc khi tat.
+echo   ------------------------------------------------------------
 echo.
 pause > nul

@@ -334,6 +334,10 @@ async function deleteProduct(id) {
   await queryRun('DELETE FROM products WHERE id = ?', [id]);
 }
 
+async function updateProductCategory(productId, categoryId) {
+  await queryRun('UPDATE products SET category_id = ? WHERE id = ?', [categoryId, productId]);
+}
+
 async function addStock(productId, accountData) {
   await queryRun('INSERT INTO stock (product_id, account_data) VALUES (?, ?)', [productId, accountData]);
 }
@@ -619,6 +623,7 @@ module.exports = {
   getProduct,
   addProduct,
   deleteProduct,
+  updateProductCategory,
   addStock,
   deleteStock,
   clearStock,

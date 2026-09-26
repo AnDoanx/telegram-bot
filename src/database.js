@@ -82,7 +82,7 @@ async function initMysql() {
         chat_id BIGINT,
         content TEXT,
         quantity INT DEFAULT 1,
-        total_price INT,
+        total_price INT DEFAULT 0,
         delivered_data TEXT,
         created_at BIGINT,
         INDEX idx_user_status (user_id, status),
@@ -187,7 +187,7 @@ function initSqlite() {
     CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
   `);
 
-  // Bù đắp tất cả các cột có thể thiếu từ database phiên bản cũ
+  // Tự động nâng cấp bảng cũ nếu thiếu cột
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN chat_id INTEGER;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN content TEXT;`); } catch (_) {}
   try { sqliteDb.exec(`ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1;`); } catch (_) {}
@@ -281,39 +281,21 @@ async function deleteCategory(id) {
 // ========== PRODUCTS ==========
 async function getAllProducts() {
   const rows = await queryAll(
-    `SELECT p.id, p.category_id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB} FROM products p`
+    `SELECT p.id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB} FROM products p`
   );
   return rows.map((row) => ({
     id: row.id,
-    category_id: row.category_id || 0,
     name: row.name,
     price: row.price,
     description: row.description,
     price_tiers: parsePriceTiersJson(row.price_tiers),
-    stock_count: parseInt(row.stock_count, 10)
-  }));
-}
-
-async function getProductsByCategory(categoryId) {
-  const rows = await queryAll(
-    `SELECT p.id, p.category_id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB} 
-     FROM products p WHERE p.category_id = ?`,
-    [categoryId]
-  );
-  return rows.map((row) => ({
-    id: row.id,
-    category_id: row.category_id || 0,
-    name: row.name,
-    price: row.price,
-    description: row.description,
-    price_tiers: parsePriceTiersJson(row.price_tiers),
-    stock_count: parseInt(row.stock_count, 10)
+    stock_count: parseInt(row.stock_count, 10) || 0
   }));
 }
 
 async function getProduct(id) {
   const rows = await queryAll(
-    `SELECT p.id, p.category_id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB}
+    `SELECT p.id, p.name, p.price, p.description, p.price_tiers, ${SQL_PRODUCTS_STOCK_SUB}
      FROM products p WHERE p.id = ?`,
     [id]
   );
@@ -321,19 +303,18 @@ async function getProduct(id) {
   const row = rows[0];
   return {
     id: row.id,
-    category_id: row.category_id || 0,
     name: row.name,
     price: row.price,
     description: row.description,
     price_tiers: parsePriceTiersJson(row.price_tiers),
-    stock_count: parseInt(row.stock_count, 10)
+    stock_count: parseInt(row.stock_count, 10) || 0
   };
 }
 
 async function addProduct(name, price, description = '', categoryId = 0) {
   const result = await queryRun(
-    'INSERT INTO products (name, price, description, category_id) VALUES (?, ?, ?, ?)',
-    [name, price, description, categoryId]
+    'INSERT INTO products (name, price, description) VALUES (?, ?, ?)',
+    [name, price, description]
   );
   return { lastInsertRowid: result.insertId };
 }
@@ -386,53 +367,49 @@ async function updateOrder(orderId, stockId, status, deliveredData = null) {
   }
 }
 
-async function getOrderById(orderId) {
-  const rows = await queryAll(
-    `SELECT o.*, p.name as product_name 
-     FROM orders o
-     JOIN products p ON o.product_id = p.id
-     WHERE o.id = ?`,
-    [orderId]
-  );
-  return rows[0] || null;
-}
-
+// Bọc an toàn: Dù DB thiếu cột nào cũng không bị sập bot
 async function getPendingOrders() {
-  const rows = await queryAll(`
-    SELECT id, user_id, product_id, chat_id, content, quantity, total_price, created_at
-    FROM orders
-    WHERE status = 'pending' AND content IS NOT NULL
-  `);
-  return rows.map((row) => ({
-    id: row.id,
-    userId: row.user_id,
-    productId: row.product_id,
-    chatId: row.chat_id,
-    content: row.content,
-    quantity: row.quantity || 1,
-    totalPrice: row.total_price || 0,
-    createdAt: row.created_at
-  }));
+  try {
+    const rows = await queryAll(`SELECT * FROM orders WHERE status = 'pending'`);
+    return rows
+      .filter(r => r.content)
+      .map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        productId: row.product_id,
+        chatId: row.chat_id || row.user_id,
+        content: row.content,
+        quantity: parseInt(row.quantity, 10) || 1,
+        totalPrice: parseInt(row.total_price, 10) || 0,
+        createdAt: row.created_at || Date.now()
+      }));
+  } catch (err) {
+    return [];
+  }
 }
 
 async function getOrdersByUser(userId) {
-  const rows = await queryAll(
-    `SELECT o.id, o.status, p.name as product_name, o.total_price, o.quantity, o.created_at, o.delivered_data
-     FROM orders o
-     JOIN products p ON o.product_id = p.id
-     WHERE o.user_id = ?
-     ORDER BY o.id DESC`,
-    [userId]
-  );
-  return rows.map((row) => ({
-    id: row.id,
-    status: row.status,
-    product_name: row.product_name,
-    total_price: row.total_price || 0,
-    quantity: row.quantity || 1,
-    created_at: row.created_at,
-    delivered_data: row.delivered_data
-  }));
+  try {
+    const rows = await queryAll(
+      `SELECT o.*, p.name as product_name
+       FROM orders o
+       JOIN products p ON o.product_id = p.id
+       WHERE o.user_id = ?
+       ORDER BY o.id DESC`,
+      [userId]
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      product_name: row.product_name,
+      total_price: parseInt(row.total_price, 10) || 0,
+      quantity: parseInt(row.quantity, 10) || 1,
+      created_at: row.created_at,
+      delivered_data: row.delivered_data
+    }));
+  } catch (err) {
+    return [];
+  }
 }
 
 async function saveUser(id, firstName, username) {
@@ -451,11 +428,11 @@ async function saveUser(id, firstName, username) {
 }
 
 async function getAllUsers() {
-  const rows = await queryAll('SELECT id, first_name, username, balance, lang FROM users');
+  const rows = await queryAll('SELECT * FROM users');
   return rows.map((row) => ({
     id: row.id,
-    first_name: row.first_name,
-    username: row.username,
+    first_name: row.first_name || '',
+    username: row.username || '',
     balance: parseInt(row.balance, 10) || 0,
     lang: row.lang || 'vi'
   }));
@@ -481,59 +458,71 @@ async function getStockByProduct(productId) {
 }
 
 async function getOrderHistory(userId) {
-  const rows = await queryAll(
-    `SELECT o.id, o.status, p.name as product_name, o.total_price, o.quantity, o.created_at, o.delivered_data
-     FROM orders o
-     JOIN products p ON o.product_id = p.id
-     WHERE o.user_id = ? AND o.status IN ('completed', 'pending', 'expired', 'cancelled')
-     ORDER BY o.id DESC
-     LIMIT 20`,
-    [userId]
-  );
-  return rows.map((row) => ({
-    id: row.id,
-    status: row.status,
-    product_name: row.product_name,
-    total_price: row.total_price || 0,
-    quantity: row.quantity || 1,
-    created_at: row.created_at,
-    delivered_data: row.delivered_data
-  }));
+  try {
+    const rows = await queryAll(
+      `SELECT o.*, p.name as product_name
+       FROM orders o
+       JOIN products p ON o.product_id = p.id
+       WHERE o.user_id = ? AND o.status IN ('completed', 'pending', 'expired', 'cancelled')
+       ORDER BY o.id DESC
+       LIMIT 20`,
+      [userId]
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      product_name: row.product_name,
+      total_price: parseInt(row.total_price, 10) || 0,
+      quantity: parseInt(row.quantity, 10) || 1,
+      created_at: row.created_at,
+      delivered_data: row.delivered_data
+    }));
+  } catch (e) {
+    return [];
+  }
 }
 
 async function getRevenue() {
-  const rows = await queryAll(`
-    SELECT COUNT(*) as total_orders, COALESCE(SUM(total_price), 0) as total_revenue
-    FROM orders
-    WHERE status = 'completed'
-  `);
-  const row = rows[0] || {};
-  return {
-    total_orders: parseInt(row.total_orders, 10) || 0,
-    total_revenue: parseInt(row.total_revenue, 10) || 0
-  };
+  try {
+    const rows = await queryAll(`
+      SELECT COUNT(*) as total_orders, COALESCE(SUM(total_price), 0) as total_revenue
+      FROM orders
+      WHERE status = 'completed'
+    `);
+    const row = rows[0] || {};
+    return {
+      total_orders: parseInt(row.total_orders, 10) || 0,
+      total_revenue: parseInt(row.total_revenue, 10) || 0
+    };
+  } catch (e) {
+    return { total_orders: 0, total_revenue: 0 };
+  }
 }
 
 async function getRecentOrders(limit = 20) {
-  const rows = await queryAll(
-    `SELECT o.id, o.user_id, o.status, p.name, o.total_price, o.quantity, u.first_name, o.created_at
-     FROM orders o
-     JOIN products p ON o.product_id = p.id
-     LEFT JOIN users u ON o.user_id = u.id
-     ORDER BY o.id DESC
-     LIMIT ?`,
-    [limit]
-  );
-  return rows.map((row) => ({
-    id: row.id,
-    user_id: row.user_id,
-    status: row.status,
-    product_name: row.name,
-    total_price: row.total_price || 0,
-    quantity: row.quantity || 1,
-    user_name: row.first_name || 'Unknown',
-    created_at: row.created_at
-  }));
+  try {
+    const rows = await queryAll(
+      `SELECT o.*, p.name as product_name, u.first_name
+       FROM orders o
+       JOIN products p ON o.product_id = p.id
+       LEFT JOIN users u ON o.user_id = u.id
+       ORDER BY o.id DESC
+       LIMIT ?`,
+      [limit]
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      user_id: row.user_id,
+      status: row.status,
+      product_name: row.product_name,
+      total_price: parseInt(row.total_price, 10) || 0,
+      quantity: parseInt(row.quantity, 10) || 1,
+      user_name: row.first_name || 'Khách',
+      created_at: row.created_at
+    }));
+  } catch (e) {
+    return [];
+  }
 }
 
 async function keepAlive() {
@@ -543,15 +532,6 @@ async function keepAlive() {
   } catch (error) {
     console.error('❌ Database keep-alive failed:', error.message);
   }
-}
-
-async function getUserLang(userId) {
-  const rows = await queryAll('SELECT lang FROM users WHERE id = ?', [userId]);
-  return rows?.[0]?.lang || null;
-}
-
-async function setUserLang(userId, lang) {
-  return await queryRun('UPDATE users SET lang = ? WHERE id = ?', [lang, userId]);
 }
 
 async function getUserBalance(userId) {
@@ -585,36 +565,22 @@ async function createDeposit(userId, amount, content) {
 }
 
 async function getPendingDeposits() {
-  const rows = await queryAll("SELECT id, user_id, amount, content, created_at FROM deposits WHERE status = 'pending'");
-  return rows.map((r) => ({
-    id: r.id,
-    userId: r.user_id,
-    amount: r.amount,
-    content: r.content,
-    createdAt: r.created_at
-  }));
+  try {
+    const rows = await queryAll("SELECT * FROM deposits WHERE status = 'pending'");
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      amount: parseInt(r.amount, 10) || 0,
+      content: r.content,
+      createdAt: r.created_at
+    }));
+  } catch (e) {
+    return [];
+  }
 }
 
 async function updateDepositStatus(depositId, status) {
   await queryRun('UPDATE deposits SET status = ? WHERE id = ?', [status, depositId]);
-}
-
-async function getUserDepositStats(userId) {
-  const rowsTotal = await queryAll(
-    "SELECT COALESCE(SUM(amount), 0) AS total FROM deposits WHERE user_id = ? AND status = 'completed'",
-    [userId]
-  );
-  const totalDeposit = parseInt(rowsTotal[0]?.total, 10) || 0;
-
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  const rowsMonth = await queryAll(
-    "SELECT COALESCE(SUM(amount), 0) AS total_month FROM deposits WHERE user_id = ? AND status = 'completed' AND created_at >= ?",
-    [userId, startOfMonth]
-  );
-  const monthDeposit = parseInt(rowsMonth[0]?.total_month, 10) || 0;
-
-  return { totalDeposit, monthDeposit };
 }
 
 module.exports = {
@@ -624,7 +590,6 @@ module.exports = {
   addCategory,
   deleteCategory,
   getAllProducts,
-  getProductsByCategory,
   getProduct,
   addProduct,
   deleteProduct,
@@ -635,7 +600,6 @@ module.exports = {
   markStockSold,
   createOrder,
   updateOrder,
-  getOrderById,
   getOrdersByUser,
   getPendingOrders,
   saveUser,
@@ -655,8 +619,5 @@ module.exports = {
   deductBalance,
   createDeposit,
   getPendingDeposits,
-  updateDepositStatus,
-  getUserDepositStats,
-  getUserLang,
-  setUserLang
+  updateDepositStatus
 };

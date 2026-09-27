@@ -1,3 +1,4 @@
+
 const TelegramBot = require('node-telegram-bot-api');
 const os = require('os');
 const { createCanvas, loadImage } = require('canvas');
@@ -21,22 +22,22 @@ function maskUid(uid) {
   return s.substring(0, keep) + '*'.repeat(s.length - keep);
 }
 
-// Bảng ngôn ngữ (được đặt ở đầu để tránh lỗi MESSAGES is not defined)
+// Bảng ngôn ngữ (Đã xoá sạch emoji basic ở text các nút bấm)
 const MESSAGES = {
   vi: {
-    channel: '📢 Kênh:',
-    admin_support: '👑 CSKH:',
+    channel: '<tg-emoji emoji-id="5215668805199473901">📢</tg-emoji> Kênh:',
+    admin_support: '<tg-emoji emoji-id="6147579234148685536">👑</tg-emoji> CSKH:',
     acc_info: '💳 TÀI CHÍNH',
     total_deposit: '├ Tổng nạp:',
     month_deposit: '├ Nạp tháng:',
     balance: '╰ Số dư ví:',
     choose_category: '📂 <b>DANH MỤC MẶT HÀNG:</b>\n<i>(Chạm vào danh mục để xem sản phẩm)</i>',
     btn_deposit: '💳 Nạp tiền',
-    btn_top: '🏆 Top nạp',
-    btn_profile: '👤 Tài khoản',
-    btn_history: '📜 Lịch sử',
-    btn_support: '💬 Hỗ trợ CSKH',
-    btn_change_lang: '🌐 Ngôn ngữ',
+    btn_top: 'Top nạp',
+    btn_profile: 'Tài khoản',
+    btn_history: 'Lịch sử',
+    btn_support: 'Hỗ trợ CSKH',
+    btn_change_lang: 'Ngôn ngữ',
     btn_back_cat: '◀️ Quay lại',
     btn_back_home: '◀️ Trang chủ',
     stock_in: 'Còn',
@@ -48,19 +49,19 @@ const MESSAGES = {
     order_confirm: '🧾 XÁC NHẬN ĐƠN HÀNG'
   },
   en: {
-    channel: '📢 Channel:',
-    admin_support: '👑 Support:',
+    channel: '<tg-emoji emoji-id="5215668805199473901">📢</tg-emoji> Channel:',
+    admin_support: '<tg-emoji emoji-id="6147579234148685536">👑</tg-emoji> Support:',
     acc_info: '💳 BALANCE',
     total_deposit: '├ Total:',
     month_deposit: '├ Month:',
     balance: '╰ Wallet:',
     choose_category: '📂 <b>CATEGORIES:</b>\n<i>(Select category to browse items)</i>',
     btn_deposit: '💳 Deposit',
-    btn_top: '🏆 Top Users',
-    btn_profile: '👤 Profile',
-    btn_history: '📜 History',
-    btn_support: '💬 Support 24/7',
-    btn_change_lang: '🌐 Language',
+    btn_top: 'Top Users',
+    btn_profile: 'Profile',
+    btn_history: 'History',
+    btn_support: 'Support 24/7',
+    btn_change_lang: 'Language',
     btn_back_cat: '◀️ Back',
     btn_back_home: '◀️ Home',
     stock_in: 'Stock',
@@ -1393,7 +1394,7 @@ async function buildMainMenu(userId) {
   ⚡ <b>${(config.SHOP_NAME || 'STORE TỰ ĐỘNG').toUpperCase()}</b> ⚡
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯
 ${t.channel} @cloneffgiare
-${t.admin_support} @accffgiatot
+${t.admin_support} @accffgiatot x foxxzy116
 ─────────────────────────
 <b>${t.acc_info}</b>
  ${t.total_deposit} <code>${(totalDeposit || 0).toLocaleString('vi-VN')}đ</code>
@@ -1408,31 +1409,32 @@ ${t.choose_category}`;
   if (categories.length > 0) {
     categories.forEach(c => {
       keyboard.push([{
-        text: `📁  ${c.name.toUpperCase()}  [ ${c.product_count} SP ]  ▸`,
-        callback_data: 'view_category_' + c.id
+        text: `${c.name.toUpperCase()}  [ ${c.product_count} SP ]  ▸`,
+        callback_data: 'view_category_' + c.id,
+        icon_custom_emoji_id: '6064644360555733605'
       }]);
     });
   } else {
     keyboard.push([{
-      text: '▫️ Đang cập nhật sản phẩm ▫️',
+      text: 'Đang cập nhật sản phẩm',
       callback_data: 'none'
     }]);
   }
 
   keyboard.push([
     { text: t.btn_deposit, callback_data: 'deposit_menu' },
-    { text: t.btn_top, callback_data: 'view_top_deposits' }
+    { text: t.btn_top, callback_data: 'view_top_deposits', icon_custom_emoji_id: '5469967260380612012' }
   ]);
 
   keyboard.push([
-    { text: t.btn_profile, callback_data: 'main_profile' },
-    { text: t.btn_history, callback_data: 'main_history' }
+    { text: t.btn_profile, callback_data: 'main_profile', icon_custom_emoji_id: '6064301746719562425' },
+    { text: t.btn_history, callback_data: 'main_history', icon_custom_emoji_id: '5215672443036772796' }
   ]);
 
-  const bottomRow = [{ text: t.btn_change_lang, callback_data: 'change_language' }];
+  const bottomRow = [{ text: t.btn_change_lang, callback_data: 'change_language', icon_custom_emoji_id: '5350469811233110106' }];
   const adminUser = (config.ADMIN_USER_NAME || '').trim().replace('@', '');
   if (adminUser) {
-    bottomRow.push({ text: t.btn_support, url: 'https://t.me/' + adminUser });
+    bottomRow.push({ text: t.btn_support, url: 'https://t.me/' + adminUser, icon_custom_emoji_id: '6147579234148685536' });
   }
   keyboard.push(bottomRow);
 
@@ -1508,25 +1510,21 @@ async function startBot() {
     let triggerSession = null;
     let captionText = '';
 
-    // 07:00 - Sáng
     if (h === 7 && m >= 0 && m <= 5 && lastGreetedDay.morning !== today) {
       lastGreetedDay.morning = today;
       triggerSession = 'morning';
       captionText = `🌅 <b>CHÀO NGÀY MỚI RỰC RỠ!</b>\n<i>Hệ thống cập nhật thời tiết tại ${SELECTED_CITY}. Chúc bạn một ngày may mắn và thuận lợi!</i>`;
     } 
-    // 11:30 - Trưa
     else if (h === 11 && m >= 30 && m <= 35 && lastGreetedDay.noon !== today) {
       lastGreetedDay.noon = today;
       triggerSession = 'noon';
       captionText = `☀️ <b>CHÚC BUỔI TRƯA AN LÀNH!</b>\n<i>Nghỉ ngơi và có bữa trưa thật ngon miệng nhé!</i>`;
     } 
-    // 17:30 - Chiều
     else if (h === 17 && m >= 30 && m <= 35 && lastGreetedDay.afternoon !== today) {
       lastGreetedDay.afternoon = today;
       triggerSession = 'afternoon';
       captionText = `🌇 <b>CHÚC BUỔI CHIỀU THẢNH THƠI!</b>\n<i>Kết thúc một ngày làm việc/học tập, về nhà nghỉ ngơi và xả stress nhé!</i>`;
     } 
-    // 21:30 - Tối
     else if (h === 21 && m >= 30 && m <= 35 && lastGreetedDay.night !== today) {
       lastGreetedDay.night = today;
       triggerSession = 'night';
@@ -1625,7 +1623,7 @@ async function startBot() {
 
         const adminDepositNotice = 
 `╔══════════════════════════════╗
-  💰 <b>CÓ GIAO DỊCH NẠP MỚI</b>
+  <tg-emoji emoji-id="5213403875670765022">💰</tg-emoji> <b>CÓ GIAO DỊCH NẠP MỚI</b>
 ╚══════════════════════════════╝
  ├ 👤 <b>Thành viên:</b> <code>${dep.userId}</code>
  ├ 💵 <b>Số tiền nạp:</b> <code>+${formatPrice(dep.amount)}</code>
@@ -1636,7 +1634,6 @@ async function startBot() {
     }
   }, 25000);
 
-  // Lệnh đổi tỉnh thành
   bot.onText(/\/settinh(?:\s+(.+))?/, async (msg, match) => {
     if (!isAdmin(msg.from.id)) return;
     const cityInput = match[1]?.trim();
@@ -1648,7 +1645,6 @@ async function startBot() {
     bot.sendMessage(msg.chat.id, `✅ <b>Đã lưu tỉnh thành: ${SELECTED_CITY.toUpperCase()}</b>\n🌡️ Test thời tiết: <b>${weather.temp}</b> | ${weather.condition}`, { parse_mode: 'HTML' });
   });
 
-  // Lệnh test thiệp chúc 4 buổi
   bot.onText(/\/testchuc(?:\s+(sang|trua|chieu|toi))?/, async (msg, match) => {
     if (!isAdmin(msg.from.id)) return;
     const type = match[1]?.toLowerCase();
@@ -1707,7 +1703,7 @@ async function startBot() {
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯
 Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự động'}</b>!
 
-🌐 Vui lòng chọn ngôn ngữ để bắt đầu:
+<tg-emoji emoji-id="5350469811233110106">🌐</tg-emoji> Vui lòng chọn ngôn ngữ để bắt đầu:
 <i>Please select your language:</i>`;
 
     await sendOrEditText(bot, msg.chat.id, null, text, getLanguageKeyboard());
@@ -1876,15 +1872,17 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
     bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
   });
 
+  // ==================== HÀM NẠP TIỀN: ĐÃ THÊM SEVQR ====================
   async function createDepositQR(chatId, userFrom, amount, oldMessageId) {
     const userTgId = userFrom.id;
-    const content = generateCode('NAP');
+    // Bắt buộc tiền tố SEVQR theo yêu cầu SePay
+    const content = 'SEVQR ' + generateCode('NAP');
     const deposit = await db.createDeposit(userTgId, amount, content);
     pendingDeposits.set(deposit.id, { userId: userTgId, amount, content, createdAt: deposit.createdAt });
 
     const caption = 
 `╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
-  💳 <b>YÊU CẦU NẠP TIỀN TỰ ĐỘNG</b>
+  <tg-emoji emoji-id="5213403875670765022">💳</tg-emoji> <b>YÊU CẦU NẠP TIỀN TỰ ĐỘNG</b>
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯
  ├ 💵 <b>Số tiền:</b> <code>${formatPrice(amount)}</code>
  ├ 🏦 <b>Ngân hàng:</b> <b>${config.BANK_NAME}</b>
@@ -1945,7 +1943,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
       }
 
       if (data === 'change_language') {
-        const langText = `🌐 <b>LỰA CHỌN NGÔN NGỮ HIỂN THỊ:</b>\n─────────────────────────\n<i>Vui lòng chọn ngôn ngữ bên dưới:</i>`;
+        const langText = `<tg-emoji emoji-id="5350469811233110106">🌐</tg-emoji> <b>LỰA CHỌN NGÔN NGỮ HIỂN THỊ:</b>\n─────────────────────────\n<i>Vui lòng chọn ngôn ngữ bên dưới:</i>`;
         return await sendOrEditText(bot, chatId, messageId, langText, getLanguageKeyboard());
       }
 
@@ -1965,7 +1963,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
           ];
 
           return await bot.sendPhoto(chatId, podiumBuffer, {
-            caption: `🏆 <b>BẢNG VINH DANH TOP ĐẠI GIA</b>\n<i>Nạp tiền ngay để leo lên bục vinh danh cao quý nhất!</i>`,
+            caption: `<tg-emoji emoji-id="5469967260380612012">🏆</tg-emoji> <b>BẢNG VINH DANH TOP ĐẠI GIA</b> <tg-emoji emoji-id="5469967260380612012">🏆</tg-emoji>\n<i>Nạp tiền ngay để leo lên bục vinh danh cao quý nhất!</i>`,
             parse_mode: 'HTML',
             reply_markup: { inline_keyboard: keyboard }
           });
@@ -2125,6 +2123,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         return;
       }
 
+      // ==================== MUA HÀNG QR: ĐÃ THÊM SEVQR ====================
       if (data.startsWith('paybank_')) {
         const [, productId, quantity] = data.split('_');
         const product = await db.getProduct(parseInt(productId));
@@ -2132,7 +2131,8 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         const totalPrice = db.calculatePrice(product, qty);
         const unitPrice = db.getUnitPrice(product, qty);
 
-        const content = generateCode();
+        // Bắt buộc tiền tố SEVQR theo yêu cầu SePay
+        const content = 'SEVQR ' + generateCode();
         const order = await db.createOrder(userId, parseInt(productId), chatId, content, qty, totalPrice);
         const orderId = order.lastInsertRowid;
         pendingOrders.set(orderId, { chatId, userId, productId: parseInt(productId), quantity: qty, totalPrice, content, createdAt: order.createdAt });
@@ -2222,7 +2222,6 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         return await sendOrEditText(bot, chatId, messageId, text, keyboard);
       }
 
-      // THẺ CĂN CƯỚC VIP
       if (data === 'main_profile') {
         const orders = await db.getOrdersByUser(userId);
         const completed = orders.filter(o => o.status === 'completed');
@@ -2245,12 +2244,12 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
 
           const keyboard = [
             [{ text: '💳 Nạp tiền vào ví', callback_data: 'deposit_menu' }],
-            [{ text: '📜 Lịch sử mua hàng', callback_data: 'main_history' }],
+            [{ text: 'Lịch sử mua hàng', callback_data: 'main_history', icon_custom_emoji_id: '5215672443036772796' }],
             [{ text: '◀️ Về Trang Chủ', callback_data: 'back_main' }]
           ];
 
           return await bot.sendPhoto(chatId, cardBuffer, {
-            caption: `👤 <b>THẺ ĐỊNH DANH THÀNH VIÊN</b>\n<i>Hạng thẻ tự động thăng cấp theo tổng tiền nạp của bạn.</i>`,
+            caption: `<tg-emoji emoji-id="6064301746719562425">👤</tg-emoji> <b>THẺ ĐỊNH DANH THÀNH VIÊN</b>\n<i>Hạng thẻ tự động thăng cấp theo tổng tiền nạp của bạn.</i>`,
             parse_mode: 'HTML',
             reply_markup: { inline_keyboard: keyboard }
           });
@@ -2262,7 +2261,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
       if (data === 'deposit_menu') {
         const text = 
 `╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
-  💳 <b>NẠP TIỀN TỰ ĐỘNG VÀO VÍ</b>
+  <tg-emoji emoji-id="5213403875670765022">💳</tg-emoji> <b>NẠP TIỀN TỰ ĐỘNG VÀO VÍ</b>
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯
 <i>Hệ thống quét biến động VietQR tự động 24/7.
 Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
@@ -2295,7 +2294,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
 
         let text = 
 `╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
-  📜 <b>LỊCH SỬ MUA HÀNG GẦN ĐÂY</b>
+  <tg-emoji emoji-id="5215672443036772796">📜</tg-emoji> <b>LỊCH SỬ MUA HÀNG GẦN ĐÂY</b>
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n`;
         const keyboard = [];
         orders.slice(0, 8).forEach((o) => {
@@ -2839,3 +2838,4 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
 }
 
 startBot().catch(console.error);
+

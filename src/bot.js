@@ -11,17 +11,69 @@ const getFullName = (user) => (user.first_name + (user.last_name ? ' ' + user.la
 const ORDER_TIMEOUT_MS = 20 * 60 * 1000;
 const BOT_START_TIME = Date.now();
 
-// Cấu hình tỉnh mặc định (admin có thể đổi bằng /settinh)
 let SELECTED_CITY = 'Hanoi';
-let lastGreetedDay = { morning: '', noon: '' };
+let lastGreetedDay = { morning: '', noon: '', afternoon: '', night: '' };
 
+// Hàm che 1 nửa UID
 function maskUid(uid) {
   const s = uid.toString();
   const keep = Math.ceil(s.length / 2);
   return s.substring(0, keep) + '*'.repeat(s.length - keep);
 }
 
-// ==================== LẤY THỜI TIẾT THỰC TẾ (FREE API) ====================
+// Bảng ngôn ngữ (được đặt ở đầu để tránh lỗi MESSAGES is not defined)
+const MESSAGES = {
+  vi: {
+    channel: '📢 Kênh:',
+    admin_support: '👑 CSKH:',
+    acc_info: '💳 TÀI CHÍNH',
+    total_deposit: '├ Tổng nạp:',
+    month_deposit: '├ Nạp tháng:',
+    balance: '╰ Số dư ví:',
+    choose_category: '📂 <b>DANH MỤC MẶT HÀNG:</b>\n<i>(Chạm vào danh mục để xem sản phẩm)</i>',
+    btn_deposit: '💳 Nạp tiền',
+    btn_top: '🏆 Top nạp',
+    btn_profile: '👤 Tài khoản',
+    btn_history: '📜 Lịch sử',
+    btn_support: '💬 Hỗ trợ CSKH',
+    btn_change_lang: '🌐 Ngôn ngữ',
+    btn_back_cat: '◀️ Quay lại',
+    btn_back_home: '◀️ Trang chủ',
+    stock_in: 'Còn',
+    stock_out: 'Hết',
+    buy_wallet: '⚡ Mua bằng ví',
+    buy_bank: '🏦 Quét VietQR',
+    insufficient_balance: 'Số dư ví không đủ! Vui lòng nạp thêm.',
+    out_of_stock: 'Mặt hàng đã hết trong kho!',
+    order_confirm: '🧾 XÁC NHẬN ĐƠN HÀNG'
+  },
+  en: {
+    channel: '📢 Channel:',
+    admin_support: '👑 Support:',
+    acc_info: '💳 BALANCE',
+    total_deposit: '├ Total:',
+    month_deposit: '├ Month:',
+    balance: '╰ Wallet:',
+    choose_category: '📂 <b>CATEGORIES:</b>\n<i>(Select category to browse items)</i>',
+    btn_deposit: '💳 Deposit',
+    btn_top: '🏆 Top Users',
+    btn_profile: '👤 Profile',
+    btn_history: '📜 History',
+    btn_support: '💬 Support 24/7',
+    btn_change_lang: '🌐 Language',
+    btn_back_cat: '◀️ Back',
+    btn_back_home: '◀️ Home',
+    stock_in: 'Stock',
+    stock_out: 'Sold Out',
+    buy_wallet: '⚡ Pay via Wallet',
+    buy_bank: '🏦 Pay via QR',
+    insufficient_balance: 'Insufficient balance! Please deposit.',
+    out_of_stock: 'This product is out of stock!',
+    order_confirm: '🧾 CONFIRMATION'
+  }
+};
+
+// ==================== LẤY THỜI TIẾT THỰC TẾ ====================
 async function fetchRealWeather(city) {
   try {
     const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`);
@@ -45,27 +97,57 @@ async function fetchRealWeather(city) {
   }
 }
 
-// ==================== CANVAS: THẺ CHÚC BUỔI SÁNG / TRƯA ====================
-function generateGreetingCard(targetName, weatherInfo, isMorning = true) {
+// ==================== CANVAS: THẺ CHÚC 4 BUỔI ====================
+function generateGreetingCard(targetName, weatherInfo, session = 'morning') {
   const width = 850;
   const height = 480;
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
 
   const grad = ctx.createLinearGradient(0, 0, width, height);
-  if (isMorning) {
+  let themeBorder = '#facc15';
+  let sessionBadge = '🌅 CHÀO BUỔI SÁNG';
+  let mainTitle = `Chúc ${targetName} ngày mới rực rỡ, may mắn!`;
+  let subQuote = '“Bắt đầu ngày mới với năng lượng đỉnh cao để gặt hái thành công.”';
+
+  if (session === 'morning') {
     grad.addColorStop(0, '#09152e');
     grad.addColorStop(0.5, '#172554');
     grad.addColorStop(1, '#1e1b4b');
-  } else {
+    themeBorder = '#facc15';
+    sessionBadge = '🌅 CHÀO BUỔI SÁNG';
+    mainTitle = `Chúc ${targetName} ngày mới tràn đầy năng lượng!`;
+    subQuote = '“Bắt đầu ngày mới với mục tiêu lớn và gặt hái thật nhiều thành công.”';
+  } else if (session === 'noon') {
     grad.addColorStop(0, '#0c4a6e');
     grad.addColorStop(0.5, '#075985');
     grad.addColorStop(1, '#082f49');
+    themeBorder = '#38bdf8';
+    sessionBadge = '☀️ CHÀO BUỔI TRƯA';
+    mainTitle = `Chúc ${targetName} bữa trưa ngon miệng và nghỉ ngơi tốt!`;
+    subQuote = '“Nạp lại pin sau giờ làm việc căng thẳng để chiều tiếp tục bứt phá.”';
+  } else if (session === 'afternoon') {
+    grad.addColorStop(0, '#431407');
+    grad.addColorStop(0.5, '#7c2d12');
+    grad.addColorStop(1, '#1c1917');
+    themeBorder = '#fb923c';
+    sessionBadge = '🌇 CHÀO BUỔI CHIỀU';
+    mainTitle = `Chúc ${targetName} tan làm/học vui vẻ, thảnh thơi!`;
+    subQuote = '“Hoàn thành nốt những công việc cuối ngày và chuẩn bị về nhà nghỉ ngơi nhé.”';
+  } else if (session === 'night') {
+    grad.addColorStop(0, '#050510');
+    grad.addColorStop(0.5, '#1e1035');
+    grad.addColorStop(1, '#020617');
+    themeBorder = '#c084fc';
+    sessionBadge = '🌙 CHÚC BUỔI TỐI';
+    mainTitle = `Chúc ${targetName} buổi tối thư giãn và ngủ ngon!`;
+    subQuote = '“Gác lại mọi âu lo trong ngày, thư giãn cùng gia đình hoặc leo rank nhẹ nhàng.”';
   }
+
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
 
-  ctx.strokeStyle = isMorning ? '#facc15' : '#38bdf8';
+  ctx.strokeStyle = themeBorder;
   ctx.lineWidth = 3;
   ctx.strokeRect(16, 16, width - 32, height - 32);
 
@@ -73,15 +155,14 @@ function generateGreetingCard(targetName, weatherInfo, isMorning = true) {
   ctx.lineWidth = 1;
   ctx.strokeRect(26, 26, width - 52, height - 52);
 
-  // Header
   ctx.fillStyle = '#94a3b8';
   ctx.font = 'bold 15px monospace';
   ctx.textAlign = 'left';
   ctx.fillText(`📅 ${new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}`, 45, 65);
 
   ctx.textAlign = 'right';
-  ctx.fillStyle = isMorning ? '#facc15' : '#38bdf8';
-  ctx.fillText(isMorning ? '🌅 CHÀO BUỔI SÁNG (MORNING)' : '☀️ CHÀO BUỔI TRƯA (NOON)', width - 45, 65);
+  ctx.fillStyle = themeBorder;
+  ctx.fillText(sessionBadge, width - 45, 65);
 
   ctx.strokeStyle = '#1e293b';
   ctx.lineWidth = 1;
@@ -90,31 +171,23 @@ function generateGreetingCard(targetName, weatherInfo, isMorning = true) {
   ctx.lineTo(width - 45, 85);
   ctx.stroke();
 
-  // Khối thông điệp chính
   ctx.textAlign = 'center';
   ctx.fillStyle = '#f8fafc';
-  ctx.font = 'bold 28px sans-serif';
-  const mainMsg = isMorning
-    ? `Chúc ${targetName} một ngày mới rực rỡ và tràn đầy may mắn!`
-    : `Chúc ${targetName} buổi trưa ngon miệng và nghỉ ngơi thật tốt!`;
-  ctx.fillText(mainMsg, width / 2, 145);
+  ctx.font = 'bold 26px sans-serif';
+  ctx.fillText(mainTitle, width / 2, 145);
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = 'italic 16px sans-serif';
-  const subMsg = isMorning
-    ? '“Mỗi buổi sáng mang đến cơ hội mới để bạn chạm tay vào thành công.”'
-    : '“Tạm gác lại công việc, nạp lại năng lượng cho buổi chiều bùng nổ nhé.”';
-  ctx.fillText(subMsg, width / 2, 185);
+  ctx.fillText(subQuote, width / 2, 185);
 
-  // Khối thời tiết (Weather Box)
   ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
   ctx.fillRect(45, 225, width - 90, 150);
-  ctx.strokeStyle = isMorning ? 'rgba(250, 204, 21, 0.35)' : 'rgba(56, 189, 248, 0.35)';
+  ctx.strokeStyle = themeBorder + '55';
   ctx.lineWidth = 1.5;
   ctx.strokeRect(45, 225, width - 90, 150);
 
   ctx.textAlign = 'left';
-  ctx.fillStyle = isMorning ? '#facc15' : '#38bdf8';
+  ctx.fillStyle = themeBorder;
   ctx.font = 'bold 18px sans-serif';
   ctx.fillText(`🌤️ THỜI TIẾT TẠI: ${weatherInfo.location}`, 70, 265);
 
@@ -131,7 +204,6 @@ function generateGreetingCard(targetName, weatherInfo, isMorning = true) {
   ctx.font = 'bold 18px sans-serif';
   ctx.fillText(`Trạng thái: ${weatherInfo.condition}`, width - 70, 310);
 
-  // Footer
   ctx.textAlign = 'center';
   ctx.fillStyle = '#64748b';
   ctx.font = '12px monospace';
@@ -140,7 +212,7 @@ function generateGreetingCard(targetName, weatherInfo, isMorning = true) {
   return canvas.toBuffer('image/png');
 }
 
-// ==================== CÁC HÀM CANVAS KHÁC ====================
+// ==================== CANVAS: THẺ BÁO ĐỘNG BIẾN ĐỘNG SỐ DƯ ====================
 function generateBalanceAlertCard(userId, amount, oldBal, newBal, code) {
   const width = 750;
   const height = 520;
@@ -230,6 +302,7 @@ function generateBalanceAlertCard(userId, amount, oldBal, newBal, code) {
   return canvas.toBuffer('image/png');
 }
 
+// ==================== CANVAS: TOP NẠP ====================
 async function generateLeaderboardPodium(topList, bot) {
   const width = 1000;
   const height = 1200;
@@ -409,6 +482,7 @@ async function generateLeaderboardPodium(topList, bot) {
   return canvas.toBuffer('image/png');
 }
 
+// ==================== CANVAS: THẺ VIP ====================
 async function generateProfileCard(user, balance, totalDeposit, totalSpent, avatarUrl = null) {
   const width = 850;
   const height = 480;
@@ -532,6 +606,7 @@ async function generateProfileCard(user, balance, totalDeposit, totalSpent, avat
   return canvas.toBuffer('image/png');
 }
 
+// ==================== CANVAS: HÓA ĐƠN ====================
 function generateReceiptImage(orderId, user, product, qty, total, payMethod = 'WALLET') {
   const width = 650;
   const height = 750;
@@ -632,6 +707,7 @@ function generateReceiptImage(orderId, user, product, qty, total, payMethod = 'W
   return canvas.toBuffer('image/png');
 }
 
+// ==================== CANVAS: UPTIME VPS ====================
 function formatDuration(seconds) {
   const d = Math.floor(seconds / (3600 * 24));
   const h = Math.floor((seconds % (3600 * 24)) / 3600);
@@ -723,6 +799,7 @@ function generateUptimeImage() {
   return canvas.toBuffer('image/png');
 }
 
+// ==================== CANVAS: DOANH THU (/revenue) ====================
 function generateRevenueCard(stats, products, totalStock) {
   const width = 850;
   const height = 540;
@@ -827,6 +904,7 @@ function generateRevenueCard(stats, products, totalStock) {
   return canvas.toBuffer('image/png');
 }
 
+// ==================== CANVAS: TỒN KHO (/stats) ====================
 function generateStatsCard(products, totalStock) {
   const width = 850;
   const displayLimit = Math.min(products.length, 10);
@@ -944,6 +1022,7 @@ function generateStatsCard(products, totalStock) {
   return canvas.toBuffer('image/png');
 }
 
+// ==================== CANVAS: ĐƠN HÀNG (/orders) ====================
 function generateOrdersLogCard(orders) {
   const width = 950;
   const displayLimit = Math.min(orders.length, 12);
@@ -1303,7 +1382,7 @@ function getLanguageKeyboard() {
 }
 
 async function buildMainMenu(userId) {
-  let lang = await db.getUserLang(userId) || 'vi';
+  let lang = (await db.getUserLang(userId)) || 'vi';
   const t = MESSAGES[lang] || MESSAGES.vi;
 
   const balance = await db.getUserBalance(userId);
@@ -1408,6 +1487,7 @@ async function startBot() {
       { command: 'revenue', description: '📈 Thống kê doanh thu Canvas' },
       { command: 'stats', description: '📊 Kiểm tra tồn kho Canvas' },
       { command: 'settinh', description: '🌤️ Cài đặt tỉnh/thành thời tiết' },
+      { command: 'testchuc', description: '🧪 Test thẻ chúc 4 buổi' },
       { command: 'users', description: '👥 Quản lý thành viên' },
       { command: 'broadcast', description: '📣 Thông báo shop' },
       { command: 'setmoney', description: '💵 Chỉnh sửa số dư' }
@@ -1416,43 +1496,56 @@ async function startBot() {
 
   bot.on('polling_error', (err) => console.log('Polling error:', err.message));
 
-  // ==================== TỰ ĐỘNG CHÚC BUỔI SÁNG & TRƯA THEO NGÀY ====================
+  // ==================== TỰ ĐỘNG CHÚC 4 BUỔI THEO GIỜ VIỆT NAM ====================
   setInterval(async () => {
-    const now = new Date();
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
-    const todayStr = now.toDateString();
+    const vnTimeStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' });
+    const vnDate = new Date(vnTimeStr);
+    
+    const h = vnDate.getHours();
+    const m = vnDate.getMinutes();
+    const today = vnDate.toDateString();
 
-    // 07:00 sáng tự động gửi lời chúc
-    if (currentHour === 7 && currentMinute === 0 && lastGreetedDay.morning !== todayStr) {
-      lastGreetedDay.morning = todayStr;
+    let triggerSession = null;
+    let captionText = '';
+
+    // 07:00 - Sáng
+    if (h === 7 && m >= 0 && m <= 5 && lastGreetedDay.morning !== today) {
+      lastGreetedDay.morning = today;
+      triggerSession = 'morning';
+      captionText = `🌅 <b>CHÀO NGÀY MỚI RỰC RỠ!</b>\n<i>Hệ thống cập nhật thời tiết tại ${SELECTED_CITY}. Chúc bạn một ngày may mắn và thuận lợi!</i>`;
+    } 
+    // 11:30 - Trưa
+    else if (h === 11 && m >= 30 && m <= 35 && lastGreetedDay.noon !== today) {
+      lastGreetedDay.noon = today;
+      triggerSession = 'noon';
+      captionText = `☀️ <b>CHÚC BUỔI TRƯA AN LÀNH!</b>\n<i>Nghỉ ngơi và có bữa trưa thật ngon miệng nhé!</i>`;
+    } 
+    // 17:30 - Chiều
+    else if (h === 17 && m >= 30 && m <= 35 && lastGreetedDay.afternoon !== today) {
+      lastGreetedDay.afternoon = today;
+      triggerSession = 'afternoon';
+      captionText = `🌇 <b>CHÚC BUỔI CHIỀU THẢNH THƠI!</b>\n<i>Kết thúc một ngày làm việc/học tập, về nhà nghỉ ngơi và xả stress nhé!</i>`;
+    } 
+    // 21:30 - Tối
+    else if (h === 21 && m >= 30 && m <= 35 && lastGreetedDay.night !== today) {
+      lastGreetedDay.night = today;
+      triggerSession = 'night';
+      captionText = `🌙 <b>CHÚC BUỔI TỐI THƯ THÁI!</b>\n<i>Thư giãn sau một ngày dài và có một giấc ngủ thật ngon nhé!</i>`;
+    }
+
+    if (triggerSession) {
+      console.log(`🚀 Đang tự động gửi thiệp chúc [${triggerSession.toUpperCase()}]...`);
       const weather = await fetchRealWeather(SELECTED_CITY);
-      const card = generateGreetingCard('quý khách', weather, true);
-
+      const card = generateGreetingCard('quý khách', weather, triggerSession);
       const users = await db.getAllUsers();
       for (const u of users) {
         bot.sendPhoto(u.id, card, {
-          caption: `🌅 <b>CHÀO NGÀY MỚI RỰC RỠ!</b>\n<i>Hệ thống tự động cập nhật thời tiết tại ${SELECTED_CITY}. Chúc bạn một ngày may mắn!</i>`,
+          caption: captionText,
           parse_mode: 'HTML'
         }).catch(() => {});
       }
     }
-
-    // 11:30 trưa tự động gửi lời chúc
-    if (currentHour === 11 && currentMinute === 30 && lastGreetedDay.noon !== todayStr) {
-      lastGreetedDay.noon = todayStr;
-      const weather = await fetchRealWeather(SELECTED_CITY);
-      const card = generateGreetingCard('quý khách', weather, false);
-
-      const users = await db.getAllUsers();
-      for (const u of users) {
-        bot.sendPhoto(u.id, card, {
-          caption: `☀️ <b>CHÚC BUỔI TRƯA AN LÀNH!</b>\n<i>Nghỉ ngơi và có bữa trưa ngon miệng nhé!</i>`,
-          parse_mode: 'HTML'
-        }).catch(() => {});
-      }
-    }
-  }, 30000);
+  }, 20000);
 
   // ==================== QUÉT ĐƠN & GỬI THẺ BIẾN ĐỘNG SỐ DƯ ====================
   setInterval(async () => {
@@ -1543,7 +1636,7 @@ async function startBot() {
     }
   }, 25000);
 
-  // Lệnh chọn tỉnh thành
+  // Lệnh đổi tỉnh thành
   bot.onText(/\/settinh(?:\s+(.+))?/, async (msg, match) => {
     if (!isAdmin(msg.from.id)) return;
     const cityInput = match[1]?.trim();
@@ -1553,6 +1646,41 @@ async function startBot() {
     SELECTED_CITY = cityInput;
     const weather = await fetchRealWeather(SELECTED_CITY);
     bot.sendMessage(msg.chat.id, `✅ <b>Đã lưu tỉnh thành: ${SELECTED_CITY.toUpperCase()}</b>\n🌡️ Test thời tiết: <b>${weather.temp}</b> | ${weather.condition}`, { parse_mode: 'HTML' });
+  });
+
+  // Lệnh test thiệp chúc 4 buổi
+  bot.onText(/\/testchuc(?:\s+(sang|trua|chieu|toi))?/, async (msg, match) => {
+    if (!isAdmin(msg.from.id)) return;
+    const type = match[1]?.toLowerCase();
+    
+    const vnTimeStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' });
+    const curHour = new Date(vnTimeStr).getHours();
+
+    let session = 'morning';
+    if (type === 'sang') session = 'morning';
+    else if (type === 'trua') session = 'noon';
+    else if (type === 'chieu') session = 'afternoon';
+    else if (type === 'toi') session = 'night';
+    else {
+      if (curHour >= 5 && curHour < 11) session = 'morning';
+      else if (curHour >= 11 && curHour < 14) session = 'noon';
+      else if (curHour >= 14 && curHour < 19) session = 'afternoon';
+      else session = 'night';
+    }
+
+    bot.sendMessage(msg.chat.id, `⏳ Đang render thiệp chúc [${session.toUpperCase()}]...`);
+    const weather = await fetchRealWeather(SELECTED_CITY);
+
+    try {
+      const card = generateGreetingCard(getFullName(msg.from) || 'Bạn', weather, session);
+      await bot.sendPhoto(msg.chat.id, card, {
+        caption: `✨ <b>TEST THÀNH CÔNG: [${session.toUpperCase()}]</b>\n📍 Tỉnh: <b>${SELECTED_CITY}</b>\n🌡️ Thời tiết: <b>${weather.temp}</b> (${weather.condition})`,
+        parse_mode: 'HTML'
+      });
+    } catch (err) {
+      console.log('Lỗi test chúc:', err.message);
+      bot.sendMessage(msg.chat.id, '❌ Lỗi khi render ảnh chúc!');
+    }
   });
 
   bot.onText(/\/uptime/, async (msg) => {
@@ -1850,7 +1978,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
         const catId = parseInt(data.split('_')[2]);
         const cat = await db.getCategory(catId);
         const products = await db.getProductsByCategory(catId);
-        let lang = await db.getUserLang(userId) || 'vi';
+        let lang = (await db.getUserLang(userId)) || 'vi';
         const t = MESSAGES[lang] || MESSAGES.vi;
 
         if (products.length === 0) {
@@ -1875,7 +2003,7 @@ Chào mừng bạn đã đến với <b>${config.SHOP_NAME || 'Cửa hàng tự 
       if (data.startsWith('product_')) {
         const product = await db.getProduct(parseInt(data.split('_')[1]));
         if (!product) return bot.answerCallbackQuery(query.id, { text: 'Sản phẩm không tồn tại!' });
-        let lang = await db.getUserLang(userId) || 'vi';
+        let lang = (await db.getUserLang(userId)) || 'vi';
         const t = MESSAGES[lang] || MESSAGES.vi;
         const stock = product.stock_count;
 
@@ -2707,7 +2835,7 @@ Chọn mức nạp gợi ý hoặc tự nhập:</i>`;
     }
   });
 
-  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với bộ Canvas toàn diện kèm tự động chúc sáng/trưa!');
+  console.log('🤖 ' + config.SHOP_NAME + ' đang chạy với bộ Canvas toàn diện kèm tự động chúc 4 buổi (sáng/trưa/chiều/tối)!');
 }
 
 startBot().catch(console.error);
